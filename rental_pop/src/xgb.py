@@ -10,16 +10,17 @@ from sklearn import model_selection, preprocessing, ensemble
 from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from Levenshtein import distance
 
 TOLERANCE = 30
-EPOCHS = 1000
+EPOCHS = 2000
 
 #input data
-train_df=pd.read_json('../input/train.json')
-test_df=pd.read_json('../input/test.json')
+train_df=pd.read_json('../input/train.json', convert_dates=["created"])
+test_df=pd.read_json('../input/test.json', convert_dates=["created"])
 
 #basic features
-train_df["price_t"] =train_df["price"]/train_df["bedrooms"]
+train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
 test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
 train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
 test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"] 
@@ -36,25 +37,40 @@ test_df["num_features"] = test_df["features"].apply(len)
 train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
 test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
 
-# cross variables
-abc_list = []
-for i in xrange(97, 123):
-    abc_list.append(str(chr(i)))
-train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
-train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
-train_lon = train_lon.astype(object)
-train_lat = train_lat.astype(object)
-train_df["grid"] = train_lon + train_lat
+# difference between addresses
+train_df["address_distance"] = train_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
+test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
 
-test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
-test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
-test_df["grid"] = test_lon + test_lat
+# cross variables
+#abc_list = []
+#for i in xrange(97, 123):
+#    abc_list.append(str(chr(i)))
+#train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
+#train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
+#train_lon = train_lon.astype(object)
+#train_lat = train_lat.astype(object)
+#train_df["grid"] = train_lon + train_lat
+#
+#test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
+#test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
+#test_df["grid"] = test_lon + test_lat
 
 print('End of feature engineering')
 
-features_to_use=["bathrooms", "bedrooms", "latitude", "longitude", "manager_id",
+features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_distance",
                  "price","price_t","num_photos", "num_features", "num_description_words",
                  "listing_id"]
+
+categorical = ["display_address", "manager_id", "building_id", "street_address"]
+for f in categorical:
+        if train_df[f].dtype=='object':
+            #print(f)
+            lbl = preprocessing.LabelEncoder()
+            lbl.fit(list(train_df[f].values) + list(test_df[f].values))
+            train_df[f] = lbl.transform(list(train_df[f].values))
+            test_df[f] = lbl.transform(list(test_df[f].values))
+            features_to_use.append(f)
+ 
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
@@ -148,16 +164,7 @@ features_to_use.append('manager_level_high')
 
 
 
-categorical = ["display_address", "manager_id", "building_id", "street_address", "grid"]
-for f in categorical:
-        if train_df[f].dtype=='object':
-            #print(f)
-            lbl = preprocessing.LabelEncoder()
-            lbl.fit(list(train_df[f].values) + list(test_df[f].values))
-            train_df[f] = lbl.transform(list(train_df[f].values))
-            test_df[f] = lbl.transform(list(test_df[f].values))
-            features_to_use.append(f)
-            
+           
 train_df['features'] = train_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 test_df['features'] = test_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 print(train_df["features"].head())
