@@ -3,17 +3,14 @@ import numpy as np
 from scipy import stats
 
 PATH = '../output/'
-MODELS = ['address_distance.csv', 'month.csv', 'puregrid.csv', 'original.csv']
+MODELS = ['address_distance', 'month', 'puregrid', 'original']
 
+model_list = {}
 
-main = pd.read_csv(PATH + MODELS.pop())
+for i in xrange(len(MODELS)):
+    model_list[MODELS[i]] = pd.read_csv(PATH + MODELS[i] + '.csv')
 
-for m in MODELS:
-  low = pd.read_csv(PATH + m).low
-  med = pd.read_csv(PATH + m).medium
-  high = pd.read_csv(PATH + m).high
-  main.low = main['low'].add(low)
-  main.med = main['medium'].add(med)
-  main.high = main['high'].add(high) 
+allm = pd.concat(model_list.values())
+ensem = allm.groupby(level=0).mean()
 
-main.to_csv('../output/ensemble.csv', index=False)
+ensem.to_csv('../output/ensemble.csv', index=False)
