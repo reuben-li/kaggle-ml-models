@@ -13,13 +13,13 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
 
 TOLERANCE = 30
-EPOCHS = 2000
+EPOCHS = 5000
 
-#input data
+# input data
 train_df=pd.read_json('../input/train.json', convert_dates=["created"])
 test_df=pd.read_json('../input/test.json', convert_dates=["created"])
 
-#basic features
+# basic features
 train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
 test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
 train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
@@ -75,7 +75,7 @@ for f in categorical:
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
     param['objective'] = 'multi:softprob'
-    param['eta'] = 0.03
+    param['eta'] = 0.01
     param['max_depth'] = 6
     param['silent'] = 1
     param['num_class'] = 3
@@ -101,59 +101,65 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
     return pred_test_y, model
     
 index=list(range(train_df.shape[0]))
+random.seed(0)
 random.shuffle(index)
 a=[np.nan]*len(train_df)
 b=[np.nan]*len(train_df)
 c=[np.nan]*len(train_df)
 
 for i in range(5):
-    building_level={}
+    manager_level={}
     for j in train_df['manager_id'].values:
-        building_level[j]=[0,0,0]
+        manager_level[j]=[0,0,0]
     test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
     train_index=list(set(index).difference(test_index))
     for j in train_index:
         temp=train_df.iloc[j]
         if temp['interest_level']=='low':
-            building_level[temp['manager_id']][0]+=1
+            manager_level[temp['manager_id']][0]+=1
         if temp['interest_level']=='medium':
-            building_level[temp['manager_id']][1]+=1
+            manager_level[temp['manager_id']][1]+=1
         if temp['interest_level']=='high':
-            building_level[temp['manager_id']][2]+=1
+            manager_level[temp['manager_id']][2]+=1
     for j in test_index:
         temp=train_df.iloc[j]
-        if sum(building_level[temp['manager_id']])!=0:
-            a[j]=building_level[temp['manager_id']][0]*1.0/sum(building_level[temp['manager_id']])
-            b[j]=building_level[temp['manager_id']][1]*1.0/sum(building_level[temp['manager_id']])
-            c[j]=building_level[temp['manager_id']][2]*1.0/sum(building_level[temp['manager_id']])
+        if sum(manager_level[temp['manager_id']])!=0:
+            a[j]=manager_level[temp['manager_id']][0]*1.0/sum(manager_level[temp['manager_id']])
+            b[j]=manager_level[temp['manager_id']][1]*1.0/sum(manager_level[temp['manager_id']])
+            c[j]=manager_level[temp['manager_id']][2]*1.0/sum(manager_level[temp['manager_id']])
 train_df['manager_level_low']=a
 train_df['manager_level_medium']=b
 train_df['manager_level_high']=c
+a_mean = np.mean(a)
+b_mean = np.mean(b)
+c_mean = np.mean(c)
 
 a=[]
 b=[]
 c=[]
-building_level={}
+manager_level={}
 for j in train_df['manager_id'].values:
-    building_level[j]=[0,0,0]
+    manager_level[j]=[0,0,0]
 for j in range(train_df.shape[0]):
     temp=train_df.iloc[j]
     if temp['interest_level']=='low':
-        building_level[temp['manager_id']][0]+=1
+        manager_level[temp['manager_id']][0]+=1
     if temp['interest_level']=='medium':
-        building_level[temp['manager_id']][1]+=1
+        manager_level[temp['manager_id']][1]+=1
     if temp['interest_level']=='high':
-        building_level[temp['manager_id']][2]+=1
+        manager_level[temp['manager_id']][2]+=1
 
 for i in test_df['manager_id'].values:
-    if i not in building_level.keys():
-        a.append(np.nan)
-        b.append(np.nan)
-        c.append(np.nan)
+    if i not in manager_level.keys():
+        a.append(a_mean)
+        b.append(b_mean)
+        c.append(c_mean)
     else:
-        a.append(building_level[i][0]*1.0/sum(building_level[i]))
-        b.append(building_level[i][1]*1.0/sum(building_level[i]))
-        c.append(building_level[i][2]*1.0/sum(building_level[i]))
+        man_level_sum = sum(manager_level[i])
+        a.append(manager_level[i][0]*1.0/man_level_sum)
+        b.append(manager_level[i][1]*1.0/man_level_sum)
+        c.append(manager_level[i][2]*1.0/man_level_sum)
+
 test_df['manager_level_low']=a
 test_df['manager_level_medium']=b
 test_df['manager_level_high']=c
@@ -161,9 +167,6 @@ test_df['manager_level_high']=c
 features_to_use.append('manager_level_low') 
 features_to_use.append('manager_level_medium') 
 features_to_use.append('manager_level_high')
-
-
-
            
 train_df['features'] = train_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 test_df['features'] = test_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
