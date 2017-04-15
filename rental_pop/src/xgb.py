@@ -20,7 +20,7 @@ train_df=pd.read_json('../input/train.json')
 test_df=pd.read_json('../input/test.json')
 
 #basic features
-train_df["price_t"] =train_df["price"]/train_df["bedrooms"]
+train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
 test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
 train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
 test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"] 
@@ -107,9 +107,6 @@ rows = len(train_df)
 index=list(range(rows))
 random.shuffle(index)
 # initialize new feature lists
-a=[np.nan]*rows
-b=[np.nan]*rows
-c=[np.nan]*rows
 a2=[np.nan]*rows
 b2=[np.nan]*rows
 c2=[np.nan]*rows
@@ -119,11 +116,8 @@ batches = int(1/TEST_RATIO)
 
 for i in range(batches):
     print('Test ' + str(i + 1) + ' of ' + str(batches))
-    manager_level={}
     grid_level={}
     # loop through manager_ids and initialize by unique ids
-    for j in train_df['manager_id'].values:
-        manager_level[j]=[0,0,0]
     for j in train_df['grid'].values:
         grid_level[j]=[0,0,0]
     # split indexes into 5 but avoided hotspot with shuffle above
@@ -135,52 +129,34 @@ for i in range(batches):
         temp=train_df.iloc[j]
         # tally interest level by manager_id
         if temp['interest_level']=='low':
-            manager_level[temp['manager_id']][0]+=1
             grid_level[temp['grid']][0]+=1
         if temp['interest_level']=='medium':
-            manager_level[temp['manager_id']][1]+=1
             grid_level[temp['grid']][1]+=1
         if temp['interest_level']=='high':
-            manager_level[temp['manager_id']][2]+=1
             grid_level[temp['grid']][2]+=1
 
     for j in test_index:
         temp=train_df.iloc[j]
-        mcount = sum(manager_level[temp['manager_id']])
         gcount = sum(grid_level[temp['grid']])
-        if mcount !=0:
-            # make counts float, then normalize to add to 1 across all three levels
-            a[j]=manager_level[temp['manager_id']][0]*1.0/mcount
-            b[j]=manager_level[temp['manager_id']][1]*1.0/mcount
-            c[j]=manager_level[temp['manager_id']][2]*1.0/mcount
         if gcount !=0:
             a2[j]=grid_level[temp['grid']][0]*1.0/gcount
             b2[j]=grid_level[temp['grid']][1]*1.0/gcount
             c2[j]=grid_level[temp['grid']][2]*1.0/gcount
 
 # after looping through all rows, create the features
-train_df['manager_level_low']=a
-train_df['manager_level_medium']=b
-train_df['manager_level_high']=c
 train_df['grid_level_low']=a2
 train_df['grid_level_medium']=b2
 train_df['grid_level_high']=c2
 
 print('Creating new features for test data set')
 
-a=[]
-b=[]
-c=[]
 a2=[]
 b2=[]
 c2=[]
 
-manager_level={}
 grid_level={}
 
 # still using training data manager IDs
-for j in train_df['manager_id'].values:
-    manager_level[j]=[0,0,0]
 for j in train_df['grid'].values:
     grid_level[j]=[0,0,0]
 
@@ -188,27 +164,13 @@ for j in train_df['grid'].values:
 for j in range(rows):
     temp=train_df.iloc[j]
     if temp['interest_level']=='low':
-        manager_level[temp['manager_id']][0]+=1
         grid_level[temp['grid']][0]+=1
     if temp['interest_level']=='medium':
-        manager_level[temp['manager_id']][1]+=1
         grid_level[temp['grid']][1]+=1
     if temp['interest_level']=='high':
-        manager_level[temp['manager_id']][2]+=1
         grid_level[temp['grid']][2]+=1
 
 # finally we play with the test dataset
-for i in test_df['manager_id'].values:
-    # for managers with no levels
-    if i not in manager_level.keys():
-        a.append(np.nan)
-        b.append(np.nan)
-        c.append(np.nan)
-    else:
-        a.append(manager_level[i][0]*1.0/sum(manager_level[i]))
-        b.append(manager_level[i][1]*1.0/sum(manager_level[i]))
-        c.append(manager_level[i][2]*1.0/sum(manager_level[i]))
-
 for i in test_df['grid'].values:
     # for managers with no levels
     if i not in grid_level.keys():
@@ -220,16 +182,10 @@ for i in test_df['grid'].values:
         b2.append(grid_level[i][1]*1.0/sum(grid_level[i]))
         c2.append(grid_level[i][2]*1.0/sum(grid_level[i]))
 
-test_df['manager_level_low']=a
-test_df['manager_level_medium']=b
-test_df['manager_level_high']=c
 test_df['grid_level_low']=a2
 test_df['grid_level_medium']=b2
 test_df['grid_level_high']=c2
 
-features_to_use.append('manager_level_low') 
-features_to_use.append('manager_level_medium') 
-features_to_use.append('manager_level_high')
 features_to_use.append('grid_level_high')
 features_to_use.append('grid_level_high')
 features_to_use.append('grid_level_high')
