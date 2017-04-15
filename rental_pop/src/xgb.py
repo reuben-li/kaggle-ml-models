@@ -13,7 +13,7 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
 
 TOLERANCE = 30
-EPOCHS = 5000
+EPOCHS = 2000
 
 # input data
 train_df=pd.read_json('../input/train.json', convert_dates=["created"])
@@ -24,6 +24,10 @@ train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
 test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
 train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
 test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"] 
+
+# month of year
+train_df["month"] = train_df["created"].apply(lambda x: x.month)
+test_df["month"] = test_df["created"].apply(lambda x: x.month)
 
 # count of photos #
 train_df["num_photos"] = train_df["photos"].apply(len)
@@ -61,7 +65,7 @@ features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_dist
                  "price","price_t","num_photos", "num_features", "num_description_words",
                  "listing_id"]
 
-categorical = ["display_address", "manager_id", "building_id", "street_address"]
+categorical = ["display_address", "manager_id", "building_id", "street_address", "month"]
 for f in categorical:
         if train_df[f].dtype=='object':
             #print(f)
@@ -75,7 +79,7 @@ for f in categorical:
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
     param['objective'] = 'multi:softprob'
-    param['eta'] = 0.01
+    param['eta'] = 0.03
     param['max_depth'] = 6
     param['silent'] = 1
     param['num_class'] = 3
