@@ -10,6 +10,7 @@ from sklearn import model_selection, preprocessing, ensemble
 from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from sklearn import tree
 from Levenshtein import distance
 
 TOLERANCE = 30
@@ -21,8 +22,8 @@ test_df=pd.read_json('../input/test.json', convert_dates=["created"])
 
 # basic features
 train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
-test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
-train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
+test_df["price_t"] = test_df["price"]/test_df["bedrooms"]
+train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"]
 test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"] 
 
 # count of photos #
@@ -42,24 +43,40 @@ train_df["address_distance"] = train_df[["street_address", "display_address"]].a
 test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
 
 # cross variables
-#abc_list = []
-#for i in xrange(97, 123):
-#    abc_list.append(str(chr(i)))
-#train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
-#train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
-#train_lon = train_lon.astype(object)
-#train_lat = train_lat.astype(object)
-#train_df["grid"] = train_lon + train_lat
-#
-#test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
-#test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
-#test_df["grid"] = test_lon + test_lat
+abc_list = []
+for i in xrange(97, 123):
+    abc_list.append(str(chr(i)))
+train_lon, lon_bins = pd.qcut(train_df["longitude"], 10, retbins=True, labels=abc_list[0:10])
+train_lat, lat_bins = pd.qcut(train_df["latitude"], 10, retbins=True, labels=abc_list[0:10])
+train_lon = train_lon.astype(object)
+train_lat = train_lat.astype(object)
+train_df["grid"] = train_lon + train_lat
+test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:10]).astype(object)
+test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:10]).astype(object)
+test_df["grid"] = test_lon + test_lat
+
+le = preprocessing.LabelEncoder()
+le.fit(train_df["grid"].append(test_df["grid"]))
+train_df["grid"] = le.transform(train_df["grid"]) 
+test_df["grid"] = le.transform(test_df["grid"]) 
+
+print('predicting price profile')
+clf = tree.DecisionTreeClassifier()
+params = ['bedrooms', 'bathrooms', 'num_features', 'grid']
+clf = clf.fit(train_df[params], train_df['price'])
+train_df["exp_price"] = pd.DataFrame(clf.predict(train_df[params]).tolist()).set_index(train_df.index)
+train_df["overprice"] = train_df["price"] - train_df["exp_price"]
+
+test_df["exp_price"] = pd.DataFrame(clf.predict(test_df[params]).tolist()).set_index(test_df.index)
+test_df["overprice"] = test_df["price"] - test_df["exp_price"]
+
+print([train_df.iloc(10)])
 
 print('End of feature engineering')
 
 features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_distance",
                  "price","price_t","num_photos", "num_features", "num_description_words",
-                 "listing_id"]
+                 "listing_id", "overprice", "exp_price"]
 
 categorical = ["display_address", "manager_id", "building_id", "street_address"]
 for f in categorical:
@@ -75,7 +92,7 @@ for f in categorical:
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
     param['objective'] = 'multi:softprob'
-    param['eta'] = 0.01
+    param['eta'] = 0.03
     param['max_depth'] = 6
     param['silent'] = 1
     param['num_class'] = 3
