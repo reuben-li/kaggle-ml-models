@@ -11,8 +11,9 @@ from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 
-TOLERANCE = 30
-EPOCHS = 1000
+TOLERANCE = 20
+EPOCHS = 5000
+TEST_RATIO = 0.2 #must sum to 1
 
 #input data
 train_df=pd.read_json('../input/train.json')
@@ -40,21 +41,38 @@ test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.
 abc_list = []
 for i in xrange(97, 123):
     abc_list.append(str(chr(i)))
-train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
-train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
+train_lon, lon_bins = pd.qcut(train_df["longitude"], 10, retbins=True, labels=abc_list[0:10])
+train_lat, lat_bins = pd.qcut(train_df["latitude"], 10, retbins=True, labels=abc_list[0:10])
 train_lon = train_lon.astype(object)
 train_lat = train_lat.astype(object)
 train_df["grid"] = train_lon + train_lat
 
-test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
-test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
+test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:10]).astype(object)
+test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:10]).astype(object)
 test_df["grid"] = test_lon + test_lat
 
-print('End of feature engineering')
+print('End of initial feature engineering')
 
-features_to_use=["bathrooms", "bedrooms", "latitude", "longitude", "manager_id",
+features_to_use=["bathrooms", "bedrooms", "longitude", "latitude",
                  "price","price_t","num_photos", "num_features", "num_description_words",
                  "listing_id"]
+
+print("Start of categorical feature engineering")
+categorical = ["display_address", "manager_id", "building_id", "street_address", "grid"]
+for f in categorical:
+        if train_df[f].dtype=='object':
+            #print(f)
+            lbl = preprocessing.LabelEncoder()
+            lbl.fit(list(train_df[f].values) + list(test_df[f].values))
+            train_df[f] = lbl.transform(list(train_df[f].values))
+            test_df[f] = lbl.transform(list(test_df[f].values))
+            # train_one = train_df[f].astype(object).reshape(-1, 1)
+            # test_one = train_df[f].astype(object).reshape(-1, 1)
+            # one_hot = OneHotEncoder()
+            # one_hot.fit(train_one)
+            # train_df[f] = one_hot.transform(train_one)
+            # test_df[f] = one_hot.transform(test_one)
+            features_to_use.append(f)
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
@@ -83,81 +101,139 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
 
     pred_test_y = model.predict(xgtest)
     return pred_test_y, model
-    
-index=list(range(train_df.shape[0]))
-random.shuffle(index)
-a=[np.nan]*len(train_df)
-b=[np.nan]*len(train_df)
-c=[np.nan]*len(train_df)
 
-for i in range(5):
-    building_level={}
+rows = len(train_df)
+# get number of row and create randomized indexs
+index=list(range(rows))
+random.shuffle(index)
+# initialize new feature lists
+a=[np.nan]*rows
+b=[np.nan]*rows
+c=[np.nan]*rows
+a2=[np.nan]*rows
+b2=[np.nan]*rows
+c2=[np.nan]*rows
+
+print('Training new features for training dataset')
+batches = int(1/TEST_RATIO)
+
+for i in range(batches):
+    print('Test ' + str(i + 1) + ' of ' + str(batches))
+    manager_level={}
+    grid_level={}
+    # loop through manager_ids and initialize by unique ids
     for j in train_df['manager_id'].values:
-        building_level[j]=[0,0,0]
-    test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
+        manager_level[j]=[0,0,0]
+    for j in train_df['grid'].values:
+        grid_level[j]=[0,0,0]
+    # split indexes into 5 but avoided hotspot with shuffle above
+    test_index=index[int((i*rows)/batches):int(((i+1)*rows)/batches)]
+    # get indexes not in test_index but in index i.e. the rest
     train_index=list(set(index).difference(test_index))
     for j in train_index:
+        # select listing by index
         temp=train_df.iloc[j]
+        # tally interest level by manager_id
         if temp['interest_level']=='low':
-            building_level[temp['manager_id']][0]+=1
+            manager_level[temp['manager_id']][0]+=1
+            grid_level[temp['grid']][0]+=1
         if temp['interest_level']=='medium':
-            building_level[temp['manager_id']][1]+=1
+            manager_level[temp['manager_id']][1]+=1
+            grid_level[temp['grid']][1]+=1
         if temp['interest_level']=='high':
-            building_level[temp['manager_id']][2]+=1
+            manager_level[temp['manager_id']][2]+=1
+            grid_level[temp['grid']][2]+=1
+
     for j in test_index:
         temp=train_df.iloc[j]
-        if sum(building_level[temp['manager_id']])!=0:
-            a[j]=building_level[temp['manager_id']][0]*1.0/sum(building_level[temp['manager_id']])
-            b[j]=building_level[temp['manager_id']][1]*1.0/sum(building_level[temp['manager_id']])
-            c[j]=building_level[temp['manager_id']][2]*1.0/sum(building_level[temp['manager_id']])
+        mcount = sum(manager_level[temp['manager_id']])
+        gcount = sum(grid_level[temp['grid']])
+        if mcount !=0:
+            # make counts float, then normalize to add to 1 across all three levels
+            a[j]=manager_level[temp['manager_id']][0]*1.0/mcount
+            b[j]=manager_level[temp['manager_id']][1]*1.0/mcount
+            c[j]=manager_level[temp['manager_id']][2]*1.0/mcount
+        if gcount !=0:
+            a2[j]=grid_level[temp['grid']][0]*1.0/gcount
+            b2[j]=grid_level[temp['grid']][1]*1.0/gcount
+            c2[j]=grid_level[temp['grid']][2]*1.0/gcount
+
+# after looping through all rows, create the features
 train_df['manager_level_low']=a
 train_df['manager_level_medium']=b
 train_df['manager_level_high']=c
+train_df['grid_level_low']=a2
+train_df['grid_level_medium']=b2
+train_df['grid_level_high']=c2
+
+print('Creating new features for test data set')
 
 a=[]
 b=[]
 c=[]
-building_level={}
+a2=[]
+b2=[]
+c2=[]
+
+manager_level={}
+grid_level={}
+
+# still using training data manager IDs
 for j in train_df['manager_id'].values:
-    building_level[j]=[0,0,0]
-for j in range(train_df.shape[0]):
+    manager_level[j]=[0,0,0]
+for j in train_df['grid'].values:
+    grid_level[j]=[0,0,0]
+
+# use all training data and tally manager scores
+for j in range(rows):
     temp=train_df.iloc[j]
     if temp['interest_level']=='low':
-        building_level[temp['manager_id']][0]+=1
+        manager_level[temp['manager_id']][0]+=1
+        grid_level[temp['grid']][0]+=1
     if temp['interest_level']=='medium':
-        building_level[temp['manager_id']][1]+=1
+        manager_level[temp['manager_id']][1]+=1
+        grid_level[temp['grid']][1]+=1
     if temp['interest_level']=='high':
-        building_level[temp['manager_id']][2]+=1
+        manager_level[temp['manager_id']][2]+=1
+        grid_level[temp['grid']][2]+=1
 
+# finally we play with the test dataset
 for i in test_df['manager_id'].values:
-    if i not in building_level.keys():
+    # for managers with no levels
+    if i not in manager_level.keys():
         a.append(np.nan)
         b.append(np.nan)
         c.append(np.nan)
     else:
-        a.append(building_level[i][0]*1.0/sum(building_level[i]))
-        b.append(building_level[i][1]*1.0/sum(building_level[i]))
-        c.append(building_level[i][2]*1.0/sum(building_level[i]))
+        a.append(manager_level[i][0]*1.0/sum(manager_level[i]))
+        b.append(manager_level[i][1]*1.0/sum(manager_level[i]))
+        c.append(manager_level[i][2]*1.0/sum(manager_level[i]))
+
+for i in test_df['grid'].values:
+    # for managers with no levels
+    if i not in grid_level.keys():
+        a2.append(np.nan)
+        b2.append(np.nan)
+        c2.append(np.nan)
+    else:
+        a2.append(grid_level[i][0]*1.0/sum(grid_level[i]))
+        b2.append(grid_level[i][1]*1.0/sum(grid_level[i]))
+        c2.append(grid_level[i][2]*1.0/sum(grid_level[i]))
+
 test_df['manager_level_low']=a
 test_df['manager_level_medium']=b
 test_df['manager_level_high']=c
+test_df['grid_level_low']=a2
+test_df['grid_level_medium']=b2
+test_df['grid_level_high']=c2
 
 features_to_use.append('manager_level_low') 
 features_to_use.append('manager_level_medium') 
 features_to_use.append('manager_level_high')
+features_to_use.append('grid_level_high')
+features_to_use.append('grid_level_high')
+features_to_use.append('grid_level_high')
 
-
-
-categorical = ["display_address", "manager_id", "building_id", "street_address", "grid"]
-for f in categorical:
-        if train_df[f].dtype=='object':
-            #print(f)
-            lbl = preprocessing.LabelEncoder()
-            lbl.fit(list(train_df[f].values) + list(test_df[f].values))
-            train_df[f] = lbl.transform(list(train_df[f].values))
-            test_df[f] = lbl.transform(list(test_df[f].values))
-            features_to_use.append(f)
-            
 train_df['features'] = train_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 test_df['features'] = test_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 print(train_df["features"].head())
