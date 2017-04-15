@@ -40,9 +40,15 @@ test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.
 abc_list = []
 for i in xrange(97, 123):
     abc_list.append(str(chr(i)))
-lon_bin = pd.qcut(train_df["longitude"], 20, labels=abc_list[0:20]).astype(object)
-lat_bin = pd.qcut(train_df["latitude"], 20, labels=abc_list[0:20]).astype(object)
-train_df["grid"] = lon_bin + lat_bin
+train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
+train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
+train_lon = train_lon.astype(object)
+train_lat = train_lat.astype(object)
+train_df["grid"] = train_lon + train_lat
+
+test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
+test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
+test_df["grid"] = test_lon + test_lat
 
 print('End of feature engineering')
 
