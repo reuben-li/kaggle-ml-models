@@ -9,10 +9,15 @@ import random
 from sklearn import model_selection, preprocessing, ensemble
 from sklearn.metrics import log_loss
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+
+TOLERANCE = 30
+EPOCHS = 1000
 
 #input data
 train_df=pd.read_json('../input/train.json')
 test_df=pd.read_json('../input/test.json')
+
 #basic features
 train_df["price_t"] =train_df["price"]/train_df["bedrooms"]
 test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
@@ -31,11 +36,21 @@ test_df["num_features"] = test_df["features"].apply(len)
 train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
 test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
 
+# cross variables
+abc_list = []
+for i in xrange(97, 123):
+    abc_list.append(str(chr(i)))
+lon_bin = pd.qcut(train_df["longitude"], 20, labels=abc_list[0:20]).astype(object)
+lat_bin = pd.qcut(train_df["latitude"], 20, labels=abc_list[0:20]).astype(object)
+train_df["grid"] = lon_bin + lat_bin
+
 print('End of feature engineering')
 
-features_to_use=["bathrooms", "bedrooms", "latitude", "longitude", "price","price_t","num_photos", "num_features", "num_description_words","listing_id"]
+features_to_use=["bathrooms", "bedrooms", "latitude", "longitude", "manager_id",
+                 "price","price_t","num_photos", "num_features", "num_description_words",
+                 "listing_id"]
 
-def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=3000):
+def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
     param['objective'] = 'multi:softprob'
     param['eta'] = 0.03
@@ -55,7 +70,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
     if test_y is not None:
         xgtest = xgb.DMatrix(test_X, label=test_y)
         watchlist = [ (xgtrain,'train'), (xgtest, 'test') ]
-        model = xgb.train(plst, xgtrain, num_rounds, watchlist, early_stopping_rounds=30)
+        model = xgb.train(plst, xgtrain, num_rounds, watchlist, early_stopping_rounds=TOLERANCE)
     else:
         xgtest = xgb.DMatrix(test_X)
         model = xgb.train(plst, xgtrain, num_rounds)
@@ -125,7 +140,9 @@ features_to_use.append('manager_level_low')
 features_to_use.append('manager_level_medium') 
 features_to_use.append('manager_level_high')
 
-categorical = ["display_address", "manager_id", "building_id", "street_address"]
+
+
+categorical = ["display_address", "manager_id", "building_id", "street_address", "grid"]
 for f in categorical:
         if train_df[f].dtype=='object':
             #print(f)
@@ -159,8 +176,9 @@ for dev_index, val_index in kf.split(range(train_X.shape[0])):
         print(cv_scores)
         break
 
-preds, model = runXGB(train_X, train_y, test_X, num_rounds=3000)
+print('final prediction')
+preds, model = runXGB(train_X, train_y, test_X, num_rounds=EPOCHS)
 out_df = pd.DataFrame(preds)
 out_df.columns = ["high", "medium", "low"]
 out_df["listing_id"] = test_df.listing_id.values
-out_df.to_csv("../output/xgb_starter2.csv", index=False)
+out_df.to_csv("../output/xgb_2.csv", index=False)
