@@ -1,37 +1,99 @@
-import os
-import sys
-import operator
-import numpy as np
-import pandas as pd
+"""
+XGB for rental-listing kaggle competition
+"""
 from scipy import sparse
 import xgboost as xgb
 import random
-from sklearn import model_selection, preprocessing, ensemble
+from sklearn import model_selection, preprocessing
 from sklearn.metrics import log_loss
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
+import numpy as np
+import pandas as pd
+from multiprocessing import Pool, Process, Queue
 
 TOLERANCE = 30
 EPOCHS = 2000
+INIT = False
 
-# input data
-train_df=pd.read_json('../input/train.json', convert_dates=["created"])
-test_df=pd.read_json('../input/test.json', convert_dates=["created"])
+def loaddata():
+    if INIT:
+        train_df=pd.read_json('../input/train.json', convert_dates=["created"])
+        test_df=pd.read_json('../input/test.json', convert_dates=["created"])
+        train_df.to_pickle('train_df')
+        test_df.to_pickle('test_df')
+    else:
+        train_df = pd.read_pickle('train_df')
+        test_df = pd.read_pickle('test_df')
+    return train_df, test_df
+
+print('Loading data')
+train_df, test_df = loaddata()
+
+print('Extracting features')
 
 # basic features
 train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
-test_df["price_t"] = test_df["price"]/test_df["bedrooms"] 
-train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"] 
-test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"] 
+test_df["price_t"] = test_df["price"]/test_df["bedrooms"]
+train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"]
+test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"]
+
+# halfbathrooms
+def halfbr(n):
+    if round(n) == n:
+        return 0
+    else:
+        return 1
+train_df["halfbr"] = train_df["bathrooms"].apply(lambda x: halfbr(x))
+test_df["halfbr"] = test_df["bathrooms"].apply(lambda x: halfbr(x))
+
+# toobig
+def toobig(n):
+    if n > 4:
+        return 1
+    else:
+        return 0
+train_df["toobig"] = train_df["bedrooms"].apply(lambda x: toobig(x))
+test_df["toobig"] = test_df["bedrooms"].apply(lambda x: toobig(x))
+
+
 
 # month of year
 train_df["month"] = train_df["created"].apply(lambda x: x.month)
 test_df["month"] = test_df["created"].apply(lambda x: x.month)
 
+# yearmonth
+train_df["yearmonth"] = train_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
+test_df["yearmonth"] = test_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
+
+# dayofweek
+train_df["day"] = train_df["created"].apply(lambda x: x.dayofweek)
+test_df["day"] = test_df["created"].apply(lambda x: x.dayofweek)
+
+# weekend
+def weekend(n):
+    if n == 5 or n == 6:
+        return 1
+    else:
+        return 0
+
+train_df["weekend"] = train_df["day"].apply(lambda x: weekend(x))
+test_df["weekend"] = test_df["day"].apply(lambda x: weekend(x))
+
 # count of photos #
 train_df["num_photos"] = train_df["photos"].apply(len)
 test_df["num_photos"] = test_df["photos"].apply(len)
+
+# nophoto
+def nophoto(n):
+    if n == 0:
+        return 1
+    else:
+        return 0
+
+train_df["nophoto"] = train_df["num_photos"].apply(lambda x: nophoto(x))
+test_df["nophoto"] = test_df["num_photos"].apply(lambda x: nophoto(x))
 
 # count of "features" #
 train_df["num_features"] = train_df["features"].apply(len)
@@ -59,22 +121,22 @@ test_df["address_distance"] = test_df[["street_address", "display_address"]].app
 #test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
 #test_df["grid"] = test_lon + test_lat
 
-print('End of feature engineering')
 
 features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_distance",
                  "price","price_t","num_photos", "num_features", "num_description_words",
                  "listing_id"]
 
-categorical = ["display_address", "manager_id", "building_id", "street_address", "month"]
+categorical = ["display_address", "manager_id", "building_id", "street_address",
+                 "nophoto", "halfbr", "month"]
+
+print('Transforming categorical data')
+
 for f in categorical:
-        if train_df[f].dtype=='object':
-            #print(f)
-            lbl = preprocessing.LabelEncoder()
-            lbl.fit(list(train_df[f].values) + list(test_df[f].values))
-            train_df[f] = lbl.transform(list(train_df[f].values))
-            test_df[f] = lbl.transform(list(test_df[f].values))
-            features_to_use.append(f)
- 
+    lbl = preprocessing.LabelEncoder()
+    lbl.fit(list(train_df[f].values) + list(test_df[f].values))
+    train_df[f] = lbl.transform(list(train_df[f].values))
+    test_df[f] = lbl.transform(list(test_df[f].values))
+    features_to_use.append(f)
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
     param = {}
@@ -103,7 +165,10 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
 
     pred_test_y = model.predict(xgtest)
     return pred_test_y, model
-    
+
+
+print('Manager ID cv statistics')
+
 index=list(range(train_df.shape[0]))
 random.seed(0)
 random.shuffle(index)
@@ -120,20 +185,20 @@ for i in range(5):
     for j in train_index:
         temp=train_df.iloc[j]
         if temp['interest_level']=='low':
-            manager_level[temp['manager_id']][0]+=1
+            manager_level[temp['manager_id']][0] += 1
         if temp['interest_level']=='medium':
-            manager_level[temp['manager_id']][1]+=1
+            manager_level[temp['manager_id']][1] += 1
         if temp['interest_level']=='high':
-            manager_level[temp['manager_id']][2]+=1
+            manager_level[temp['manager_id']][2] += 1
     for j in test_index:
         temp=train_df.iloc[j]
         if sum(manager_level[temp['manager_id']])!=0:
-            a[j]=manager_level[temp['manager_id']][0]*1.0/sum(manager_level[temp['manager_id']])
-            b[j]=manager_level[temp['manager_id']][1]*1.0/sum(manager_level[temp['manager_id']])
-            c[j]=manager_level[temp['manager_id']][2]*1.0/sum(manager_level[temp['manager_id']])
-train_df['manager_level_low']=a
-train_df['manager_level_medium']=b
-train_df['manager_level_high']=c
+            a[j]=manager_level[temp['manager_id']][0] * 1.0 / sum(manager_level[temp['manager_id']])
+            b[j]=manager_level[temp['manager_id']][1] * 1.0 / sum(manager_level[temp['manager_id']])
+            c[j]=manager_level[temp['manager_id']][2] * 1.0 / sum(manager_level[temp['manager_id']])
+train_df['manager_level_low'] = a
+train_df['manager_level_medium'] = b
+train_df['manager_level_high'] = c
 a_mean = np.mean(a)
 b_mean = np.mean(b)
 c_mean = np.mean(c)
@@ -168,33 +233,33 @@ test_df['manager_level_low']=a
 test_df['manager_level_medium']=b
 test_df['manager_level_high']=c
 
-features_to_use.append('manager_level_low') 
-features_to_use.append('manager_level_medium') 
+features_to_use.append('manager_level_low')
+features_to_use.append('manager_level_medium')
 features_to_use.append('manager_level_high')
-           
+
 train_df['features'] = train_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 test_df['features'] = test_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
-print(train_df["features"].head())
 tfidf = CountVectorizer(stop_words='english', max_features=200)
 tr_sparse = tfidf.fit_transform(train_df["features"])
 te_sparse = tfidf.transform(test_df["features"])
-    
+
 train_X = sparse.hstack([train_df[features_to_use], tr_sparse]).tocsr()
 test_X = sparse.hstack([test_df[features_to_use], te_sparse]).tocsr()
 
 target_num_map = {'high':0, 'medium':1, 'low':2}
 train_y = np.array(train_df['interest_level'].apply(lambda x: target_num_map[x]))
-print(train_X.shape, test_X.shape)
+
+print('Training')
 
 cv_scores = []
 kf = model_selection.KFold(n_splits=5, shuffle=True, random_state=2016)
 for dev_index, val_index in kf.split(range(train_X.shape[0])):
-        dev_X, val_X = train_X[dev_index,:], train_X[val_index,:]
-        dev_y, val_y = train_y[dev_index], train_y[val_index]
-        preds, model = runXGB(dev_X, dev_y, val_X, val_y)
-        cv_scores.append(log_loss(val_y, preds))
-        print(cv_scores)
-        break
+    dev_X, val_X = train_X[dev_index,:], train_X[val_index,:]
+    dev_y, val_y = train_y[dev_index], train_y[val_index]
+    preds, model = runXGB(dev_X, dev_y, val_X, val_y)
+    cv_scores.append(log_loss(val_y, preds))
+    print(cv_scores)
+    break
 
 print('final prediction')
 preds, model = runXGB(train_X, train_y, test_X, num_rounds=EPOCHS)
