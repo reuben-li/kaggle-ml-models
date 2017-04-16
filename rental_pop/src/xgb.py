@@ -11,123 +11,108 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
 import numpy as np
 import pandas as pd
-from multiprocessing import Pool, Process, Queue
 
 TOLERANCE = 30
 EPOCHS = 2000
-INIT = False
 
 def loaddata():
-    if INIT:
-        train_df=pd.read_json('../input/train.json', convert_dates=["created"])
-        test_df=pd.read_json('../input/test.json', convert_dates=["created"])
-        train_df.to_pickle('train_df')
-        test_df.to_pickle('test_df')
-    else:
-        train_df = pd.read_pickle('train_df')
-        test_df = pd.read_pickle('test_df')
-    return train_df, test_df
+    """ load data """
+    train_df = pd.read_json('../input/train.json', convert_dates=["created"])
+    test_df = pd.read_json('../input/test.json', convert_dates=["created"])
+    return(train_df, test_df)
+
+def prep_features(train_df, test_df):
+    """ prepare features """
+    # basic features
+    train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
+    test_df["price_t"] = test_df["price"]/test_df["bedrooms"]
+    train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"]
+    test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"]
+
+    # halfbathrooms
+    def halfbr(n):
+        """ half bedrooms unpopular """
+        if round(n) == n:
+            return 0
+        else:
+            return 1
+    train_df["halfbr"] = train_df["bathrooms"].apply(lambda x: halfbr(x))
+    test_df["halfbr"] = test_df["bathrooms"].apply(lambda x: halfbr(x))
+
+    # toobig
+    def toobig(n):
+        """ too many rooms """
+        if n > 4:
+            return 1
+        else:
+            return 0
+    train_df["toobig"] = train_df["bedrooms"].apply(lambda x: toobig(x))
+    test_df["toobig"] = test_df["bedrooms"].apply(lambda x: toobig(x))
+
+    # month of year
+    train_df["month"] = train_df["created"].apply(lambda x: x.month)
+    test_df["month"] = test_df["created"].apply(lambda x: x.month)
+
+    # yearmonth
+    train_df["yearmonth"] = train_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
+    test_df["yearmonth"] = test_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
+
+    # dayofweek
+    train_df["day"] = train_df["created"].apply(lambda x: x.dayofweek)
+    test_df["day"] = test_df["created"].apply(lambda x: x.dayofweek)
+
+    # weekend
+    def weekend(n):
+        """ weekend lethargy """
+        if n == 5 or n == 6:
+            return 1
+        else:
+            return 0
+
+    train_df["weekend"] = train_df["day"].apply(lambda x: weekend(x))
+    test_df["weekend"] = test_df["day"].apply(lambda x: weekend(x))
+
+    # count of photos #
+    train_df["num_photos"] = train_df["photos"].apply(len)
+    test_df["num_photos"] = test_df["photos"].apply(len)
+
+    # nophoto
+    def nophoto(n):
+        """ lack of photos """
+        if n == 0:
+            return 1
+        else:
+            return 0
+
+    train_df["nophoto"] = train_df["num_photos"].apply(lambda x: nophoto(x))
+    test_df["nophoto"] = test_df["num_photos"].apply(lambda x: nophoto(x))
+
+    # count of "features" #
+    train_df["num_features"] = train_df["features"].apply(len)
+    test_df["num_features"] = test_df["features"].apply(len)
+
+    # count of words present in description column #
+    train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
+    test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
+
+    # difference between addresses
+    train_df["address_distance"] = train_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
+    test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
+    return(train_df, test_df)
+
 
 print('Loading data')
 train_df, test_df = loaddata()
 
 print('Extracting features')
-
-# basic features
-train_df["price_t"] = train_df["price"]/train_df["bedrooms"]
-test_df["price_t"] = test_df["price"]/test_df["bedrooms"]
-train_df["room_sum"] = train_df["bedrooms"]+train_df["bathrooms"]
-test_df["room_sum"] = test_df["bedrooms"]+test_df["bathrooms"]
-
-# halfbathrooms
-def halfbr(n):
-    if round(n) == n:
-        return 0
-    else:
-        return 1
-train_df["halfbr"] = train_df["bathrooms"].apply(lambda x: halfbr(x))
-test_df["halfbr"] = test_df["bathrooms"].apply(lambda x: halfbr(x))
-
-# toobig
-def toobig(n):
-    if n > 4:
-        return 1
-    else:
-        return 0
-train_df["toobig"] = train_df["bedrooms"].apply(lambda x: toobig(x))
-test_df["toobig"] = test_df["bedrooms"].apply(lambda x: toobig(x))
-
-
-
-# month of year
-train_df["month"] = train_df["created"].apply(lambda x: x.month)
-test_df["month"] = test_df["created"].apply(lambda x: x.month)
-
-# yearmonth
-train_df["yearmonth"] = train_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
-test_df["yearmonth"] = test_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
-
-# dayofweek
-train_df["day"] = train_df["created"].apply(lambda x: x.dayofweek)
-test_df["day"] = test_df["created"].apply(lambda x: x.dayofweek)
-
-# weekend
-def weekend(n):
-    if n == 5 or n == 6:
-        return 1
-    else:
-        return 0
-
-train_df["weekend"] = train_df["day"].apply(lambda x: weekend(x))
-test_df["weekend"] = test_df["day"].apply(lambda x: weekend(x))
-
-# count of photos #
-train_df["num_photos"] = train_df["photos"].apply(len)
-test_df["num_photos"] = test_df["photos"].apply(len)
-
-# nophoto
-def nophoto(n):
-    if n == 0:
-        return 1
-    else:
-        return 0
-
-train_df["nophoto"] = train_df["num_photos"].apply(lambda x: nophoto(x))
-test_df["nophoto"] = test_df["num_photos"].apply(lambda x: nophoto(x))
-
-# count of "features" #
-train_df["num_features"] = train_df["features"].apply(len)
-test_df["num_features"] = test_df["features"].apply(len)
-
-# count of words present in description column #
-train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
-test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
-
-# difference between addresses
-train_df["address_distance"] = train_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
-test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
-
-# cross variables
-#abc_list = []
-#for i in xrange(97, 123):
-#    abc_list.append(str(chr(i)))
-#train_lon, lon_bins = pd.qcut(train_df["longitude"], 20, retbins=True, labels=abc_list[0:20])
-#train_lat, lat_bins = pd.qcut(train_df["latitude"], 20, retbins=True, labels=abc_list[0:20])
-#train_lon = train_lon.astype(object)
-#train_lat = train_lat.astype(object)
-#train_df["grid"] = train_lon + train_lat
-#
-#test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:20]).astype(object)
-#test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:20]).astype(object)
-#test_df["grid"] = test_lon + test_lat
-
+train_df, test_df = prep_features(train_df, test_df)
 
 features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_distance",
                  "price","price_t","num_photos", "num_features", "num_description_words",
                  "listing_id"]
 
 categorical = ["display_address", "manager_id", "building_id", "street_address",
-                 "nophoto", "halfbr", "month"]
+               "halfbr", "month"]
 
 print('Transforming categorical data')
 
@@ -139,6 +124,7 @@ for f in categorical:
     features_to_use.append(f)
 
 def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0, num_rounds=EPOCHS):
+    """ extreme gradient boost """
     param = {}
     param['objective'] = 'multi:softprob'
     param['eta'] = 0.03
@@ -166,7 +152,6 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
     pred_test_y = model.predict(xgtest)
     return pred_test_y, model
 
-
 print('Manager ID cv statistics')
 
 index=list(range(train_df.shape[0]))
@@ -184,15 +169,15 @@ for i in range(5):
     train_index=list(set(index).difference(test_index))
     for j in train_index:
         temp=train_df.iloc[j]
-        if temp['interest_level']=='low':
+        if temp['interest_level'] == 'low':
             manager_level[temp['manager_id']][0] += 1
-        if temp['interest_level']=='medium':
+        if temp['interest_level'] == 'medium':
             manager_level[temp['manager_id']][1] += 1
-        if temp['interest_level']=='high':
+        if temp['interest_level'] == 'high':
             manager_level[temp['manager_id']][2] += 1
     for j in test_index:
         temp=train_df.iloc[j]
-        if sum(manager_level[temp['manager_id']])!=0:
+        if sum(manager_level[temp['manager_id']]) != 0:
             a[j]=manager_level[temp['manager_id']][0] * 1.0 / sum(manager_level[temp['manager_id']])
             b[j]=manager_level[temp['manager_id']][1] * 1.0 / sum(manager_level[temp['manager_id']])
             c[j]=manager_level[temp['manager_id']][2] * 1.0 / sum(manager_level[temp['manager_id']])
@@ -203,10 +188,10 @@ a_mean = np.mean(a)
 b_mean = np.mean(b)
 c_mean = np.mean(c)
 
-a=[]
-b=[]
-c=[]
-manager_level={}
+a = []
+b = []
+c = []
+manager_level = {}
 for j in train_df['manager_id'].values:
     manager_level[j]=[0,0,0]
 for j in range(train_df.shape[0]):
