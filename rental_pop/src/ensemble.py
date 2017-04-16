@@ -20,4 +20,5 @@ def create_ensemble():
     return
 
 if __name__ == '__main__':
+    create_ensemble()
     print('ensemble results created')
