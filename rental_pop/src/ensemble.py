@@ -1,16 +1,23 @@
+"""
+Multi-model ensemble
+"""
+
+import os
 import pandas as pd
-import numpy as np
-from scipy import stats
 
-PATH = '../output/'
-MODELS = ['address_distance', 'month', 'puregrid', 'original']
+PATH = '../output/ensemble/'
+MODELS = os.listdir(PATH)
 
-model_list = {}
+def create_ensemble():
+    """ simple averaging ensemble """
+    model_list = {}
+    for i in xrange(len(MODELS)):
+        model_list[MODELS[i]] = pd.read_csv(PATH + MODELS[i])
 
-for i in xrange(len(MODELS)):
-    model_list[MODELS[i]] = pd.read_csv(PATH + MODELS[i] + '.csv')
+    allm = pd.concat(model_list.values())
+    ensem = allm.groupby(level=0).mean()
+    ensem.to_csv(PATH + 'ensemble.csv', index=False)
+    return
 
-allm = pd.concat(model_list.values())
-ensem = allm.groupby(level=0).mean()
-
-ensem.to_csv('../output/ensemble.csv', index=False)
+if __name__ == '__main__':
+    print('ensemble results created')
