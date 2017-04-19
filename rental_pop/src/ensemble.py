@@ -1,22 +1,23 @@
 """
 Multi-model ensemble
 """
-
-import os
+import glob
+import time
 import pandas as pd
 
 PATH = '../output/ensemble/'
-MODELS = os.listdir(PATH)
+MODELS = glob.glob(PATH + '*.csv')
 
 def create_ensemble():
     """ simple averaging ensemble """
     model_list = {}
     for i in xrange(len(MODELS)):
-        model_list[MODELS[i]] = pd.read_csv(PATH + MODELS[i])
+        model_list[MODELS[i]] = pd.read_csv(MODELS[i])
 
     allm = pd.concat(model_list.values())
     ensem = allm.groupby(level=0).mean()
-    ensem.to_csv(PATH + 'ensemble.csv', index=False)
+    timestamp = str(int(time.time()))
+    ensem.to_csv(PATH + 'out/' + 'ensemble_' + timestamp + '.csv', index=False)
     return
 
 if __name__ == '__main__':
