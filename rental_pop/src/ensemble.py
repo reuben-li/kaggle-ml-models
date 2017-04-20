@@ -17,6 +17,7 @@ def create_ensemble():
     allm = pd.concat(model_list.values())
     ensem = allm.groupby(level=0).mean()
     timestamp = str(int(time.time()))
+    ensem['listing_id'] = [int(i) for i in ensem['listing_id']]
     ensem.to_csv(PATH + 'out/' + 'ensemble_' + timestamp + '.csv', index=False)
     return
 
