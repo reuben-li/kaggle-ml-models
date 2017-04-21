@@ -2,6 +2,7 @@
 XGB for rental-listing kaggle competition
 """
 from scipy import sparse
+from sklearn import tree
 import xgboost as xgb
 import random
 from sklearn import model_selection, preprocessing
@@ -19,7 +20,9 @@ def loaddata():
     """ load data """
     train_df = pd.read_json('../input/train.json', convert_dates=["created"])
     test_df = pd.read_json('../input/test.json', convert_dates=["created"])
-    return(train_df, test_df)
+    image_date = pd.read_csv("../input/listing_image_time.csv")
+
+    return train_df, test_df, image_date
 
 def prep_features(train_df, test_df):
     """ prepare features """
@@ -95,24 +98,87 @@ def prep_features(train_df, test_df):
     train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
     test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
 
+    # count of uppercase letters present
+    train_df["upper_case"] = train_df["description"].apply(lambda x: sum(1 for i in x if i.isupper()))
+    test_df["upper_case"] = test_df["description"].apply(lambda x: sum(1 for i in x if i.isupper()))
+
+    # upperpercent
+    train_df["upper_percent"] = train_df["upper_case"]*100.0/train_df["num_description_words"]
+    test_df["upper_percent"] = test_df["upper_case"]*100.0/test_df["num_description_words"]
+
     # difference between addresses
     train_df["address_distance"] = train_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
     test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
-    return(train_df, test_df)
+
+    train_df['pricet_group'] = pd.qcut(train_df["price_t"], 10, False)
+    test_df['pricet_group'] = pd.qcut(test_df["price_t"], 10, False)
+
+    # cross variables
+    abc_list = []
+    classes=12
+    for i in xrange(97, 123):
+        abc_list.append(str(chr(i)))
+    train_lon, lon_bins = pd.qcut(train_df["longitude"], classes, retbins=True, labels=abc_list[0:classes])
+    train_lat, lat_bins = pd.qcut(train_df["latitude"], classes, retbins=True, labels=abc_list[0:classes])
+    train_lon = train_lon.astype(object)
+    train_lat = train_lat.astype(object)
+    train_df["grid"] = train_lon + train_lat
+    test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:classes]).astype(object)
+    test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:classes]).astype(object)
+    test_df["grid"] = test_lon + test_lat
+
+    le = preprocessing.LabelEncoder()
+    le.fit(train_df["grid"].append(test_df["grid"]))
+    train_df["grid"] = le.transform(train_df["grid"])
+    test_df["grid"] = le.transform(test_df["grid"])
+
+    # rename columns so you can join tables later on
+    image_date.columns = ["listing_id", "time_stamp"]
+
+    # reassign the only one timestamp from April, all others from Oct/Nov
+    #image_date.loc[80240,"time_stamp"] = 1478129766
+    #image_date["img_date"] = pd.to_datetime(image_date["time_stamp"], unit="s")
+    #image_date["img_days_passed"] = (image_date["img_date"].max() - image_date["img_date"]).astype("timedelta64[D]").astype(int)
+    #image_date["img_date_month"] = image_date["img_date"].dt.month
+    #image_date["img_date_week"] = image_date["img_date"].dt.week
+    #image_date["img_date_day"] = image_date["img_date"].dt.day
+    #image_date["img_date_dayofweek"] = image_date["img_date"].dt.dayofweek
+    #image_date["img_date_dayofyear"] = image_date["img_date"].dt.dayofyear
+    #image_date["img_date_hour"] = image_date["img_date"].dt.hour
+    #image_date["img_date_monthBeginMidEnd"] = image_date["img_date_day"].apply(lambda x: 1 if x<10 else 2 if x<20 else 3)
+
+    train_df = pd.merge(train_df, image_date, on="listing_id", how="left")
+    test_df = pd.merge(test_df, image_date, on="listing_id", how="left")
+
+    return train_df, test_df
+"""
+    print('predicting price profile')
+    clf = tree.DecisionTreeClassifier()
+    params = ['bedrooms', 'bathrooms', 'num_features', 'grid']
+    clf = clf.fit(train_df[params], train_df['price'])
+    train_df["exp_price"] = pd.DataFrame(clf.predict(train_df[params]).tolist()).set_index(train_df.index)
+    train_df["overprice"] = train_df["price"] - train_df["exp_price"]
+
+    test_df["exp_price"] = pd.DataFrame(clf.predict(test_df[params]).tolist()).set_index(test_df.index)
+    test_df["overprice"] = test_df["price"] - test_df["exp_price"]
+"""
+
 
 
 print('Loading data')
-train_df, test_df = loaddata()
+train_df, test_df, image_date = loaddata()
 
 print('Extracting features')
 train_df, test_df = prep_features(train_df, test_df)
 
 features_to_use=["latitude", "longitude", "bathrooms", "bedrooms", "address_distance",
                  "price","price_t","num_photos", "num_features", "num_description_words",
-                 "listing_id"]
+                 "listing_id", "time_stamp" ] #, "img_days_passed", "img_date_month", "img_date_week",
+                 #"img_date_day", "img_date_dayofweek", "img_date_dayofyear", "img_date_hour",
+                 #"img_date_monthBeginMidEnd"]
 
 categorical = ["display_address", "manager_id", "building_id", "street_address",
-               "halfbr", "month"]
+               "month"]
 
 print('Transforming categorical data')
 
@@ -161,26 +227,27 @@ a=[np.nan]*len(train_df)
 b=[np.nan]*len(train_df)
 c=[np.nan]*len(train_df)
 
+group = 'manager_id'
 for i in range(5):
     manager_level={}
-    for j in train_df['manager_id'].values:
+    for j in train_df[group].values:
         manager_level[j]=[0,0,0]
     test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
     train_index=list(set(index).difference(test_index))
     for j in train_index:
         temp=train_df.iloc[j]
         if temp['interest_level'] == 'low':
-            manager_level[temp['manager_id']][0] += 1
+            manager_level[temp[group]][0] += 1
         if temp['interest_level'] == 'medium':
-            manager_level[temp['manager_id']][1] += 1
+            manager_level[temp[group]][1] += 1
         if temp['interest_level'] == 'high':
-            manager_level[temp['manager_id']][2] += 1
+            manager_level[temp[group]][2] += 1
     for j in test_index:
         temp=train_df.iloc[j]
-        if sum(manager_level[temp['manager_id']]) != 0:
-            a[j]=manager_level[temp['manager_id']][0] * 1.0 / sum(manager_level[temp['manager_id']])
-            b[j]=manager_level[temp['manager_id']][1] * 1.0 / sum(manager_level[temp['manager_id']])
-            c[j]=manager_level[temp['manager_id']][2] * 1.0 / sum(manager_level[temp['manager_id']])
+        if sum(manager_level[temp[group]]) != 0:
+            a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
+            b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
+            c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
 train_df['manager_level_low'] = a
 train_df['manager_level_medium'] = b
 train_df['manager_level_high'] = c
@@ -192,18 +259,18 @@ a = []
 b = []
 c = []
 manager_level = {}
-for j in train_df['manager_id'].values:
+for j in train_df[group].values:
     manager_level[j]=[0,0,0]
 for j in range(train_df.shape[0]):
     temp=train_df.iloc[j]
     if temp['interest_level']=='low':
-        manager_level[temp['manager_id']][0]+=1
+        manager_level[temp[group]][0]+=1
     if temp['interest_level']=='medium':
-        manager_level[temp['manager_id']][1]+=1
+        manager_level[temp[group]][1]+=1
     if temp['interest_level']=='high':
-        manager_level[temp['manager_id']][2]+=1
+        manager_level[temp[group]][2]+=1
 
-for i in test_df['manager_id'].values:
+for i in test_df[group].values:
     if i not in manager_level.keys():
         a.append(a_mean)
         b.append(b_mean)
