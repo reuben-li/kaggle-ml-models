@@ -10,6 +10,7 @@ from sklearn.metrics import log_loss
 from scipy.sparse import csr_matrix
 from sklearn import tree
 from Levenshtein import distance
+import random
 
 import sys
 reload(sys)
@@ -160,6 +161,79 @@ def load_data_sparse(data_path=DATA_PATH):
 
             features_to_use.append(f)
 
+    # manager_id stats
+    print('manager_id stats')    
+
+    index=list(range(train_df.shape[0]))
+    random.seed(0)
+    random.shuffle(index)
+    a=[np.nan]*len(train_df)
+    b=[np.nan]*len(train_df)
+    c=[np.nan]*len(train_df)
+
+    group = 'manager_id'
+    for i in range(5):
+        manager_level={}
+        for j in train_df[group].values:
+            manager_level[j]=[0,0,0]
+        test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
+        train_index=list(set(index).difference(test_index))
+        for j in train_index:
+            temp=train_df.iloc[j]
+            if temp['interest_level'] == 'low':
+                manager_level[temp[group]][0] += 1
+            if temp['interest_level'] == 'medium':
+                manager_level[temp[group]][1] += 1
+            if temp['interest_level'] == 'high':
+                manager_level[temp[group]][2] += 1
+        for j in test_index:
+            temp=train_df.iloc[j]
+            if sum(manager_level[temp[group]]) != 0:
+                a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
+                b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
+                c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
+    train_df['manager_level_low'] = a
+    train_df['manager_level_medium'] = b
+    train_df['manager_level_high'] = c
+    a_mean = np.mean(a)
+    b_mean = np.mean(b)
+    c_mean = np.mean(c)
+    
+    a = []
+    b = []
+    c = []
+    manager_level = {}
+    for j in train_df[group].values:
+        manager_level[j]=[0,0,0]
+    for j in range(train_df.shape[0]):
+        temp=train_df.iloc[j]
+        if temp['interest_level']=='low':
+            manager_level[temp[group]][0]+=1
+        if temp['interest_level']=='medium':
+            manager_level[temp[group]][1]+=1
+        if temp['interest_level']=='high':
+            manager_level[temp[group]][2]+=1
+    
+    for i in test_df[group].values:
+        if i not in manager_level.keys():
+            a.append(a_mean)
+            b.append(b_mean)
+            c.append(c_mean)
+        else:
+            man_level_sum = sum(manager_level[i])
+            a.append(manager_level[i][0]*1.0/man_level_sum)
+            b.append(manager_level[i][1]*1.0/man_level_sum)
+            c.append(manager_level[i][2]*1.0/man_level_sum)
+    
+    test_df['manager_level_low']=a
+    test_df['manager_level_medium']=b
+    test_df['manager_level_high']=c
+    
+    features_to_use.append('manager_level_low')
+    features_to_use.append('manager_level_high')
+    features_to_use.append('manager_level_medium')
+
+
     train_df['features'] =  train_df['features'].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
     test_df['features'] =test_df['features'].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
 
@@ -309,7 +383,7 @@ def main():
         param = {}
         param['booster']='gbtree'
         param['objective'] = 'multi:softprob'
-        param['bst:eta'] = 0.04
+        param['bst:eta'] = 0.03
         param['seed']=  1
         param['bst:max_depth'] = 6
         param['bst:min_child_weight']= 1.
@@ -323,6 +397,7 @@ def main():
         param['lambda']=5
         param['num_class']= 3
         param['eval_metric'] = "mlogloss"
+        # num_rounds = num_rounds
 
         i=0 # iterator counter
         print ("starting cross validation with %d kfolds " % (number_of_folds))
@@ -375,8 +450,6 @@ def main():
         for pr in range (0,len(preds)):
                 for d in range (0,3):
                     test_stacker[pr][d]=(preds[pr][d])
-
-
 
         print ("merging columns")
         #stack xgboost predictions
