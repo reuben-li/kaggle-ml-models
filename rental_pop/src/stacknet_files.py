@@ -24,6 +24,8 @@ def load_data_sparse(data_path=DATA_PATH):
     test_file = data_path + "test.json"
     train_df = pd.read_json(train_file)
     test_df = pd.read_json(test_file)
+    image_date = pd.read_csv(data_path + "listing_image_time.csv")
+    image_date.columns = ["listing_id", "time_stamp"]
 
     # original features
     features_to_use = ["bathrooms", "bedrooms", "latitude", "longitude",
@@ -39,42 +41,40 @@ def load_data_sparse(data_path=DATA_PATH):
         # count of house features
         df["num_features"] = df["features"].apply(len)
 
-        # normalize listing_id
-        df["listing_id"] = df["listing_id"] - 68119576.0
-
         # count of words present in description column
         df["num_words"] = df["description"].apply(lambda x: len(x.split(' ')))
-        df["uppercase"] = df["description"]
-                              .apply(lambda x: sum(1 for i in x if i.isupper()))
+        df["uppercase"] = df["description"].apply(lambda x: sum(1 for i in x if i.isupper()))
         df["upper_percent"] = df["uppercase"] * 100.0 / df["num_words"]
 
         # room related
         df["rooms"] = df["bathrooms"] + df["bedrooms"]
         df["toobig"] = df["bedrooms"].apply(lambda x: 1 if x > 4 else 0)
-        df["halfbr"] = df["bathrooms"]
-                           .apply(lambda x: if 0 round(x) == x else 1)
+        df["halfbr"] = df["bathrooms"].apply(lambda x: 0 if round(x) == x else 1)
 
         # price related
         df["price_t"] = (df["price"]) / (df["rooms"] + 1.0)
-        df['pricet_group'] = pd.qcut(df["price_t"], 10, False)
         df["price_lat"] = (df["price"]) / (df["latitude"] + 1.0)
         df["price_lon"] = (df["price"]) / (df["longitude"] - 1.0)
-        df["rooms"] = df["room"]
-                          .apply(lambda x: str(x) if float(x) < 9.5 else '10')
+        df["rooms"] = df["rooms"].apply(lambda x: str(x) if float(x) < 9.5 else '10')
 
         # difference between addresses
-        df["add_dist"] = df[["street_address", "display_address"]]
-                             .apply(lambda x: distance(*x), axis=1)
+        df["add_dist"] = df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
 
         # date related
         df["created"] = pd.to_datetime(df["created"])
         df["c_month"] = df["created"].dt.month
         df["c_day"] = df["created"].dt.day
         df["c_hour"] = df["created"].dt.hour
-        df["total_days"] = (train_df["c_month"] -4.0) * 30 + train_df["c_day"]
-                               + train_df["c_hour"] / 25.0
-        df["diff_rank"] = df["total_days"] / df["listing_id"]
+        df["total_days"] = (df["c_month"] -4.0) * 30 + df["c_day"] + df["c_hour"] / 25.0
+        df["diff_rank"] = df["total_days"] / (df["listing_id"] - 68119576.0)
         df["weekend"] = df["c_day"].apply(lambda x: 1 if x in [5, 6] else 0)
+
+    # magic variable!
+    train_df = pd.merge(train_df, image_date, on="listing_id", how="left")
+    test_df = pd.merge(test_df, image_date, on="listing_id", how="left")
+    # normalize listing_id
+    train_df["listing_id"] = train_df["listing_id"] - 68119576.0
+    test_df["listing_id"] = test_df["listing_id"] - 68119576.0
 
     # grid encoding
     abc_list = []
@@ -90,10 +90,8 @@ def load_data_sparse(data_path=DATA_PATH):
     train_lat = train_lat.astype(object)
     train_df["grid"] = train_lon + train_lat
 
-    test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:num])
-                   .astype(object)
-    test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:num])
-                   .astype(object)
+    test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:num]).astype(object)
+    test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:num]).astype(object)
     test_df["grid"] = test_lon + test_lat
 
     le = LabelEncoder()
@@ -101,6 +99,7 @@ def load_data_sparse(data_path=DATA_PATH):
     train_df["grid"] = le.transform(train_df["grid"])
     test_df["grid"] = le.transform(test_df["grid"])
 
+    # price level estimation
     print('predicting price profile')
 
     clf = tree.DecisionTreeClassifier()
@@ -114,26 +113,37 @@ def load_data_sparse(data_path=DATA_PATH):
                                .tolist()).set_index(test_df.index)
     test_df["overprice"] = test_df["price"] - test_df["exp_price"]
 
-    categorical = ["grid","display_address", "manager_id", "building_id",
-                   "street_address","num_furniture", "halfbr", "toobig",
-                   "address_distance","nophoto","weekend"]
+    # price group
+    train_pg, pricet_bins = pd.qcut(train_df["price_t"], num,
+                                                retbins=True, labels=abc_list[0:num])
+    test_pg = pd.cut(df["price_t"], pricet_bins, labels=abc_list[0:num])
+    train_df['pricet_group'] = train_pg.astype(object)
+    test_df['pricet_group'] = test_pg.astype(object)
 
-    lencat=len(categorical)
+    categorical = ["grid", "display_address", "manager_id", "building_id",
+                   "street_address", "rooms", "pricet_group"]
 
-#    for f in range (0,lencat):
-#        for s in range (f+1,lencat):
-#            train_df[categorical[f]] = str(train_df[categorical[f]])
-#            test_df[categorical[f]] = str(test_df[categorical[f]])
-#            train_df[categorical[f] + "_" + categorical[s]] = train_df[categorical[f]]+"_" + train_df[categorical[s]]
-#            test_df[categorical[f] + "_" + categorical[s]] =test_df[categorical[f]]+"_" + test_df[categorical[s]]
-#            categorical.append(categorical[f] + "_" +categorical[s])
+    # generate categorical cross features
+    print("generating categorical cross features")
 
-    # adding all these new features to use list #
-    features_to_use.extend(["overprice","num_photos", "num_features",
-                            "num_description_words", "created_month",
-                            "created_day", "listing_id", "created_hour",
-                            "total_days","diff_rank",#"listing_rank","total_days_rank",
-                            "price_t","price_lat","price_long"])#,"price_latitue_longtitude"]) "created_year", #,"num_description_length"
+    lencat = len(categorical)
+
+    for f in range (0, lencat):
+        for s in range (f+1,lencat):
+            for df in [train_df, test_df]:
+                print(categorical[s])
+                df[categorical[f]] = str(df[categorical[f]])
+                df[categorical[f] + "_" + categorical[s]] = df[categorical[f]] + "_" + df[categorical[s]]
+            categorical.append(categorical[f] + "_" +categorical[s])
+
+    # add continuous features
+    features_to_use.extend(["overprice", "num_photos", "num_features",
+                            "num_words", "c_month", "c_day", "listing_id",
+                            "c_hour", "total_days", "diff_rank", "uppercase",
+                            "upper_percent", "rooms", "add_dist", "time_stamp",
+                            "price_t","price_lat","price_lon", "toobig",
+                            "halfbr", "weekend"])
+
     result = pd.concat([train_df,test_df])
 
     for f in categorical:
@@ -159,8 +169,6 @@ def load_data_sparse(data_path=DATA_PATH):
     tfidfdesc=TfidfVectorizer(min_df=20, max_features=50, strip_accents='unicode',lowercase =True,
                         analyzer='word', token_pattern=r'\w{16,}', ngram_range=(1, 2), use_idf=False,smooth_idf=False,
     sublinear_tf=True, stop_words = 'english')
-
-    print(train_df["features"].head())
 
     tfidf = CountVectorizer(stop_words='english', max_features=200)
 
@@ -270,22 +278,20 @@ def main():
         train_file="train_stacknet.csv"
         test_file="test_stacknet.csv"
 
-        ######### Load files ############
-
-        X,X_test,y,ids=load_data_sparse(data_path=DATA_PATH)# you might need to change that to whatever folder the json files are in
-        ids= np.array([int(k)+68119576 for k in ids ]) # we add the id value we removed before for scaling reasons.
+        X, X_test, y, ids = load_data_sparse(data_path=DATA_PATH)
+        ids= np.array([int(k)+68119576 for k in ids ])
         print(X.shape, X_test.shape)
 
         #create to numpy arrays (dense format)
         X=X.toarray()
         X_test=X_test.toarray()
 
-        print ("scalling")
+        print ("scaling")
         #scale the data
         stda=StandardScaler()
-        X_test=stda.fit_transform (X_test)
+        print(np.any(np.isnan(X_test)))
+        X_test=stda.fit_transform(X_test)
         X=stda.transform(X)
-
 
         CO=[0,14,21] # columns to create averages on
 
@@ -316,7 +322,7 @@ def main():
         param['colsample_bylevel']= 0.7
         param['lambda']=5
         param['num_class']= 3
-
+        param['eval_metric'] = "mlogloss"
 
         i=0 # iterator counter
         print ("starting cross validation with %d kfolds " % (number_of_folds))
@@ -331,8 +337,8 @@ def main():
                 print (" train size: %d. test size: %d, cols: %d " % ((W_train.shape[0]) ,(W_cv.shape[0]) ,(W_train.shape[1]) ))
                 #training
                 X1=xgb.DMatrix(csr_matrix(W_train), label=np.array(y_train),missing =-999.0)
-                watchlist = [ (X1,'train'), (X1, 'test') ]
-                X1cv=xgb.DMatrix(csr_matrix(W_cv), missing =-999.0)
+                X1cv=xgb.DMatrix(csr_matrix(W_cv), label=np.array(y_cv), missing =-999.0)
+                watchlist = [ (X1,'train'), (X1cv, 'test') ]
                 bst = xgb.train(param.items(), X1, 1000, watchlist, early_stopping_rounds=TOLERANCE)
                 #predictions
                 predictions = bst.predict(X1cv)
