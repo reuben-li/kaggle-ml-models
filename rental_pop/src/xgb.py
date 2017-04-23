@@ -246,7 +246,7 @@ features_to_use=["latitude", "longitude_bin", "bathrooms", "bedrooms", "address_
                  "exp_price", "price_t_bin", "layout"]
 
 categorical = ["display_address", "manager_id", "building_id", "street_address",
-               "month", "img_date_dayofyear"]
+               "month"]
 
 print('Transforming categorical data')
 
