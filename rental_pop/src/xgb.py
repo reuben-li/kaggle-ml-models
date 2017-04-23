@@ -80,13 +80,6 @@ def loaddata():
 
 def prep_features(train_df, test_df):
     """ prepare features """
-    # basic features
-    train_df["price_t"] = train_df["price"] / train_df["bedrooms"]
-    test_df["price_t"] = test_df["price"] / test_df["bedrooms"]
-    train_df["room_sum"] = train_df["bedrooms"] + train_df["bathrooms"]
-    test_df["room_sum"] = test_df["bedrooms"] + test_df["bathrooms"]
-    train_df["layout"] = train_df["bathrooms"] + train_df["bedrooms"]
-    test_df["layout"] = test_df["bathrooms"] + test_df["bedrooms"]
 
     def binner(feat, bins, dyn=True):
         out, featbins = pd.qcut(train_df[feat], bins, retbins=True, labels=False)
@@ -95,6 +88,30 @@ def prep_features(train_df, test_df):
             test_df[feat + '_bin'] = pd.cut(test_df[feat], featbins, labels=False).astype(float)
         else:
             test_df[feat + '_bin'] = pd.qcut(test_df[feat], bins, labels=False).astype(float)
+
+    def med(feat):
+        comb = pd.concat([train_df, test_df])
+        feat_uniq = comb[feat].unique()
+        feat_med = {}
+        for i in feat_uniq:
+            a = comb[comb[feat] == i].price.median()
+            feat_med[i] = a
+        train_df[feat + '_med'] = train_df[feat].apply(lambda x: feat_med[x])
+        train_df[feat + '_value'] = train_df[feat + '_med'] - train_df['price']
+        test_df[feat + '_med'] = test_df[feat].apply(lambda x: feat_med[x])
+        test_df[feat + '_value'] = test_df[feat + '_med'] - test_df['price']
+
+    med('bedrooms')
+
+    medlat = train_df['latitude'].median()
+    medlon = train_df['longitude'].median()
+
+    for data in [train_df, test_df]:
+        # basic features
+        data["price_t"] = data["price"] / data["bedrooms"]
+        data["room_sum"] = data["bedrooms"] + data["bathrooms"]
+        data["layout"] = data["bathrooms"] + train_df["bedrooms"]
+        data['distance'] = (abs(data['longitude'] - medlon)**2 + abs(data['latitude'] - medlat)**2)**0.5
 
     binner('longitude', 20)
 
@@ -243,7 +260,7 @@ features_to_use=["latitude", "longitude_bin", "bathrooms", "bedrooms", "address_
                  "listing_id", "time_stamp", "img_days_passed", "img_date_month", "img_date_week",
                  "img_date_day", "img_date_dayofweek", "img_date_hour", "nophoto",
                  "img_date_monthBeginMidEnd", "upper_case", "upper_percent", "halfbr",
-                 "exp_price", "price_t_bin", "layout"]
+                 "exp_price", "price_t_bin", "layout", "distance", "bedrooms_value"]
 
 categorical = ["display_address", "manager_id", "building_id", "street_address",
                "month"]
