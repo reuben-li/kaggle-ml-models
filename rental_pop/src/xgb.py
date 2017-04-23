@@ -262,8 +262,7 @@ features_to_use=["latitude", "longitude_bin", "bathrooms", "bedrooms", "address_
                  "img_date_monthBeginMidEnd", "upper_case", "upper_percent", "halfbr",
                  "exp_price", "price_t_bin", "layout", "distance", "bedrooms_value"]
 
-categorical = ["display_address", "manager_id", "building_id", "street_address",
-               "month"]
+categorical = ["display_address", "manager_id", "building_id", "street_address"]
 
 print('Transforming categorical data')
 
@@ -349,6 +348,7 @@ for group in ['manager_id']:
                 a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
                 b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
                 c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
+    np.save('train_abc', (a, b, c))
     train_df[group + '_low'] = a
     train_df[group + '_medium'] = b
     train_df[group + '_high'] = c
@@ -382,6 +382,7 @@ for group in ['manager_id']:
             b.append(manager_level[i][1]*1.0/man_level_sum)
             c.append(manager_level[i][2]*1.0/man_level_sum)
 
+    np.save('test_abc', (a, b, c))
     test_df[group + '_low']=a
     test_df[group + '_medium']=b
     test_df[group + '_high']=c
