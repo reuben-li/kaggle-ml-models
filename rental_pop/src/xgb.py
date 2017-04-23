@@ -1,6 +1,7 @@
 """
 XGB for rental-listing kaggle competition
 """
+from __future__ import print_function
 from scipy import sparse
 from sklearn import tree
 import xgboost as xgb
@@ -13,8 +14,8 @@ from Levenshtein import distance
 import numpy as np
 import pandas as pd
 
-TOLERANCE = 30
-EPOCHS = 2000
+TOLERANCE = 50
+EPOCHS = 1300
 
 import sys
 reload(sys)
@@ -112,6 +113,9 @@ def prep_features(train_df, test_df):
         data["room_sum"] = data["bedrooms"] + data["bathrooms"]
         data["layout"] = data["bathrooms"] + train_df["bedrooms"]
         data['distance'] = (abs(data['longitude'] - medlon)**2 + abs(data['latitude'] - medlat)**2)**0.5
+        data['chars'] = len(data['description'])
+        data['exclaim'] = [x.count('!') for x in data['description']]
+        data['shock'] = data['exclaim'] / data['chars'] * 100
 
     binner('longitude', 20)
 
@@ -266,20 +270,6 @@ categorical = ["display_address", "manager_id", "building_id", "street_address"]
 
 print('Transforming categorical data')
 
-lencat = len(categorical)
-
-"""
-for f in range(0, lencat):
-    print(categorical[f])
-    for s in range(f + 1, lencat):
-        print(categorical[s])
-        for df in [train_df, test_df]:
-            print('x')
-            df[categorical[f]] = str(df[categorical[f]])
-            df[categorical[s]] = str(df[categorical[s]])
-            df[categorical[f] + "_" + categorical[s]] = df[categorical[f]] + "_" + df[categorical[s]]
-        categorical.append(categorical[f] + "_" + categorical[s])
-"""
 for f in categorical:
     print(f)
     lbl = preprocessing.LabelEncoder()
