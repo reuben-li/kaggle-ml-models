@@ -322,33 +322,39 @@ print('Manager ID cv statistics')
 #group = 'manager_id'
 for group in ['manager_id']:
 
-    index = list(range(train_df.shape[0]))
-    random.shuffle(index)
-    a=[np.nan]*len(train_df)
-    b=[np.nan]*len(train_df)
-    c=[np.nan]*len(train_df)
+    if not np.DataSource('train_abc.npy'):
+        print('train_abc.npy not found')
+        index = list(range(train_df.shape[0]))
+        random.shuffle(index)
+        a=[np.nan]*len(train_df)
+        b=[np.nan]*len(train_df)
+        c=[np.nan]*len(train_df)
 
-    for i in range(5):
-        manager_level={}
-        for j in train_df[group].values:
-            manager_level[j]=[0,0,0]
-        test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
-        train_index=list(set(index).difference(test_index))
-        for j in train_index:
-            temp=train_df.iloc[j]
-            if temp['interest_level'] == 'low':
-                manager_level[temp[group]][0] += 1
-            if temp['interest_level'] == 'medium':
-                manager_level[temp[group]][1] += 1
-            if temp['interest_level'] == 'high':
-                manager_level[temp[group]][2] += 1
-        for j in test_index:
-            temp=train_df.iloc[j]
-            if sum(manager_level[temp[group]]) != 0:
-                a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
-                b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
-                c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
-    np.save('train_abc', (a, b, c))
+        for i in range(5):
+            manager_level={}
+            for j in train_df[group].values:
+                manager_level[j]=[0,0,0]
+            test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
+            train_index=list(set(index).difference(test_index))
+            for j in train_index:
+                temp=train_df.iloc[j]
+                if temp['interest_level'] == 'low':
+                    manager_level[temp[group]][0] += 1
+                if temp['interest_level'] == 'medium':
+                    manager_level[temp[group]][1] += 1
+                if temp['interest_level'] == 'high':
+                    manager_level[temp[group]][2] += 1
+            for j in test_index:
+                temp=train_df.iloc[j]
+                if sum(manager_level[temp[group]]) != 0:
+                    a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
+                    b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
+                    c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
+        np.save('train_abc', (a, b, c))
+    else:
+        print('loading train_abc.npy')
+        a, b, c = np.load('train_abc.npy')
+
     train_df[group + '_low'] = a
     train_df[group + '_medium'] = b
     train_df[group + '_high'] = c
@@ -356,33 +362,38 @@ for group in ['manager_id']:
     b_mean = np.mean(b)
     c_mean = np.mean(c)
 
-    a = []
-    b = []
-    c = []
-    manager_level = {}
-    for j in train_df[group].values:
-        manager_level[j]=[0,0,0]
-    for j in range(train_df.shape[0]):
-        temp=train_df.iloc[j]
-        if temp['interest_level']=='low':
-            manager_level[temp[group]][0]+=1
-        if temp['interest_level']=='medium':
-            manager_level[temp[group]][1]+=1
-        if temp['interest_level']=='high':
-            manager_level[temp[group]][2]+=1
+    if not np.DataSource('test_abc.npy'):
+        print('test_abc.npy not found')
+        a = []
+        b = []
+        c = []
+        manager_level = {}
+        for j in train_df[group].values:
+            manager_level[j]=[0,0,0]
+        for j in range(train_df.shape[0]):
+            temp=train_df.iloc[j]
+            if temp['interest_level']=='low':
+                manager_level[temp[group]][0]+=1
+            if temp['interest_level']=='medium':
+                manager_level[temp[group]][1]+=1
+            if temp['interest_level']=='high':
+                manager_level[temp[group]][2]+=1
 
-    for i in test_df[group].values:
-        if i not in manager_level.keys():
-            a.append(a_mean)
-            b.append(b_mean)
-            c.append(c_mean)
-        else:
-            man_level_sum = sum(manager_level[i])
-            a.append(manager_level[i][0]*1.0/man_level_sum)
-            b.append(manager_level[i][1]*1.0/man_level_sum)
-            c.append(manager_level[i][2]*1.0/man_level_sum)
+        for i in test_df[group].values:
+            if i not in manager_level.keys():
+                a.append(a_mean)
+                b.append(b_mean)
+                c.append(c_mean)
+            else:
+                man_level_sum = sum(manager_level[i])
+                a.append(manager_level[i][0]*1.0/man_level_sum)
+                b.append(manager_level[i][1]*1.0/man_level_sum)
+                c.append(manager_level[i][2]*1.0/man_level_sum)
+        np.save('test_abc', (a, b, c))
+    else:
+        print('loading test_abc.npy')
+        a, b, c = np.load('test_abc.npy')
 
-    np.save('test_abc', (a, b, c))
     test_df[group + '_low']=a
     test_df[group + '_medium']=b
     test_df[group + '_high']=c
