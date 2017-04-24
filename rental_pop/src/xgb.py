@@ -22,53 +22,53 @@ random.seed(0)
 
 TOLERANCE = 50
 EPOCHS = 1300
-
-interest_levels = ['low', 'medium', 'high']
-
-tau_train = {
-    'low': 0.694683,
-    'medium': 0.227529,
-    'high': 0.077788,
-}
-
-tau_test = {
-    'low': 0.69195995,
-    'medium': 0.23108864,
-    'high': 0.07695141,
-}
+INTEREST = ['low', 'medium', 'high']
 
 def correct(df, train=True, verbose=False):
     """ Adjust results to data distribution """
+
+    tau_train = {
+        'low': 0.694683,
+        'medium': 0.227529,
+        'high': 0.077788,
+    }
+
+    tau_test = {
+        'low': 0.69195995,
+        'medium': 0.23108864,
+        'high': 0.07695141,
+    }
+
     if train:
         tau = tau_train
     else:
         tau = tau_test
 
     index = df['listing_id']
-    df_sum = df[interest_levels].sum(axis=1)
-    df_correct = df[interest_levels].copy()
+    df_sum = df[INTEREST].sum(axis=1)
+    df_correct = df[INTEREST].copy()
 
     if verbose:
-        y = df_correct.mean()
-        a = [tau[k] / y[k]  for k in interest_levels]
-        print( a)
+        dupli = df_correct.mean()
+        a = [tau[k] / dupli[k]  for k in INTEREST]
+        print(a)
 
-    for c in interest_levels:
+    for c in INTEREST:
         df_correct[c] /= df_sum
 
     for i in range(20):
-        for c in interest_levels:
+        for c in INTEREST:
             df_correct[c] *= tau[c] / df_correct[c].mean()
 
         df_sum = df_correct.sum(axis=1)
 
-        for c in interest_levels:
+        for c in INTEREST:
             df_correct[c] /= df_sum
 
     if verbose:
-        y = df_correct.mean()
-        a = [tau[k] / y[k]  for k in interest_levels]
-        print( a)
+        dupli = df_correct.mean()
+        a = [tau[k] / dupli[k]  for k in INTEREST]
+        print(a)
 
     df_correct = pd.concat([index, df_correct], axis=1)
     return df_correct
@@ -194,12 +194,12 @@ train_df, test_df, image_date = loaddata()
 print('Extracting features')
 train_df, test_df = prep_features(train_df, test_df)
 
-features_to_use=['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'address_distance',
-                 'price', 'price_t', 'num_photos', 'num_features', 'num_description_words',
-                 'listing_id', 'time_stamp', 'img_days_passed', 'img_date_month', 'img_date_week',
-                 'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
-                 'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
-                 'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value']
+features_to_use = ['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'address_distance',
+                   'price', 'price_t', 'num_photos', 'num_features', 'num_description_words',
+                   'listing_id', 'time_stamp', 'img_days_passed', 'img_date_month', 'img_date_week',
+                   'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
+                   'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
+                   'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value']
 
 categorical = ['display_address', 'manager_id', 'building_id', 'street_address']
 
@@ -244,89 +244,89 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
 
 print('Manager ID cv statistics')
 
-#group = 'manager_id'
-for group in ['manager_id']:
+def cvstats():
+    for group in ['manager_id']:
+        if not np.DataSource('train_abc.npy'):
+            print('train_abc.npy not found')
+            index = list(range(train_df.shape[0]))
+            random.shuffle(index)
+            a = [np.nan]*len(train_df)
+            b = [np.nan]*len(train_df)
+            c = [np.nan]*len(train_df)
 
-    if not np.DataSource('train_abc.npy'):
-        print('train_abc.npy not found')
-        index = list(range(train_df.shape[0]))
-        random.shuffle(index)
-        a=[np.nan]*len(train_df)
-        b=[np.nan]*len(train_df)
-        c=[np.nan]*len(train_df)
+            for i in range(5):
+                manager_level={}
+                for j in train_df[group].values:
+                    manager_level[j] = [0, 0, 0]
+                test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
+                train_index=list(set(index).difference(test_index))
+                for j in train_index:
+                    temp = train_df.iloc[j]
+                    if temp['interest_level'] == 'low':
+                        manager_level[temp[group]][0] += 1
+                    if temp['interest_level'] == 'medium':
+                        manager_level[temp[group]][1] += 1
+                    if temp['interest_level'] == 'high':
+                        manager_level[temp[group]][2] += 1
+                for j in test_index:
+                    temp = train_df.iloc[j]
+                    if sum(manager_level[temp[group]]) != 0:
+                        a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
+                        b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
+                        c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
+            np.save('train_abc', (a, b, c))
+        else:
+            print('loading train_abc.npy')
+            a, b, c = np.load('train_abc.npy')
 
-        for i in range(5):
-            manager_level={}
+        train_df[group + '_low'] = a
+        train_df[group + '_medium'] = b
+        train_df[group + '_high'] = c
+        a_mean = np.mean(a)
+        b_mean = np.mean(b)
+        c_mean = np.mean(c)
+
+        if not np.DataSource('test_abc.npy'):
+            print('test_abc.npy not found')
+            a = []
+            b = []
+            c = []
+            manager_level = {}
             for j in train_df[group].values:
-                manager_level[j]=[0,0,0]
-            test_index=index[int((i*train_df.shape[0])/5):int(((i+1)*train_df.shape[0])/5)]
-            train_index=list(set(index).difference(test_index))
-            for j in train_index:
+                manager_level[j]=[0, 0, 0]
+            for j in range(train_df.shape[0]):
                 temp=train_df.iloc[j]
                 if temp['interest_level'] == 'low':
-                    manager_level[temp[group]][0] += 1
+                    manager_level[temp[group]][0]+=1
                 if temp['interest_level'] == 'medium':
-                    manager_level[temp[group]][1] += 1
+                    manager_level[temp[group]][1]+=1
                 if temp['interest_level'] == 'high':
-                    manager_level[temp[group]][2] += 1
-            for j in test_index:
-                temp=train_df.iloc[j]
-                if sum(manager_level[temp[group]]) != 0:
-                    a[j]=manager_level[temp[group]][0] * 1.0 / sum(manager_level[temp[group]])
-                    b[j]=manager_level[temp[group]][1] * 1.0 / sum(manager_level[temp[group]])
-                    c[j]=manager_level[temp[group]][2] * 1.0 / sum(manager_level[temp[group]])
-        np.save('train_abc', (a, b, c))
-    else:
-        print('loading train_abc.npy')
-        a, b, c = np.load('train_abc.npy')
+                    manager_level[temp[group]][2]+=1
 
-    train_df[group + '_low'] = a
-    train_df[group + '_medium'] = b
-    train_df[group + '_high'] = c
-    a_mean = np.mean(a)
-    b_mean = np.mean(b)
-    c_mean = np.mean(c)
+            for i in test_df[group].values:
+                if i not in manager_level.keys():
+                    a.append(a_mean)
+                    b.append(b_mean)
+                    c.append(c_mean)
+                else:
+                    man_level_sum = sum(manager_level[i])
+                    a.append(manager_level[i][0]*1.0/man_level_sum)
+                    b.append(manager_level[i][1]*1.0/man_level_sum)
+                    c.append(manager_level[i][2]*1.0/man_level_sum)
+            np.save('test_abc', (a, b, c))
+        else:
+            print('loading test_abc.npy')
+            a, b, c = np.load('test_abc.npy')
 
-    if not np.DataSource('test_abc.npy'):
-        print('test_abc.npy not found')
-        a = []
-        b = []
-        c = []
-        manager_level = {}
-        for j in train_df[group].values:
-            manager_level[j]=[0,0,0]
-        for j in range(train_df.shape[0]):
-            temp=train_df.iloc[j]
-            if temp['interest_level']=='low':
-                manager_level[temp[group]][0]+=1
-            if temp['interest_level']=='medium':
-                manager_level[temp[group]][1]+=1
-            if temp['interest_level']=='high':
-                manager_level[temp[group]][2]+=1
+        test_df[group + '_low'] = a
+        test_df[group + '_medium'] = b
+        test_df[group + '_high'] = c
 
-        for i in test_df[group].values:
-            if i not in manager_level.keys():
-                a.append(a_mean)
-                b.append(b_mean)
-                c.append(c_mean)
-            else:
-                man_level_sum = sum(manager_level[i])
-                a.append(manager_level[i][0]*1.0/man_level_sum)
-                b.append(manager_level[i][1]*1.0/man_level_sum)
-                c.append(manager_level[i][2]*1.0/man_level_sum)
-        np.save('test_abc', (a, b, c))
-    else:
-        print('loading test_abc.npy')
-        a, b, c = np.load('test_abc.npy')
+        features_to_use.append(group + '_low')
+        features_to_use.append(group + '_medium')
+        features_to_use.append(group + '_high')
 
-    test_df[group + '_low']=a
-    test_df[group + '_medium']=b
-    test_df[group + '_high']=c
-
-    features_to_use.append(group + '_low')
-    features_to_use.append(group + '_medium')
-    features_to_use.append(group + '_high')
-
+cvstats()
 train_df['features'] = train_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
 test_df['features'] = test_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
 tfidf = CountVectorizer(stop_words='english', max_features=200)
