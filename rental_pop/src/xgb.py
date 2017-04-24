@@ -1,7 +1,9 @@
 """
 XGB for rental-listing kaggle competition
 """
+
 from __future__ import print_function
+import sys
 from scipy import sparse
 from sklearn import tree
 import xgboost as xgb
@@ -14,13 +16,12 @@ from Levenshtein import distance
 import numpy as np
 import pandas as pd
 
-TOLERANCE = 50
-EPOCHS = 1300
-
-import sys
 reload(sys)
 sys.setdefaultencoding('utf8')
 random.seed(0)
+
+TOLERANCE = 50
+EPOCHS = 1300
 
 interest_levels = ['low', 'medium', 'high']
 
@@ -37,6 +38,7 @@ tau_test = {
 }
 
 def correct(df, train=True, verbose=False):
+    """ Adjust results to data distribution """
     if train:
         tau = tau_train
     else:
@@ -73,9 +75,9 @@ def correct(df, train=True, verbose=False):
 
 def loaddata():
     """ load data """
-    train_df = pd.read_json('../input/train.json', convert_dates=["created"])
-    test_df = pd.read_json('../input/test.json', convert_dates=["created"])
-    image_date = pd.read_csv("../input/listing_image_time.csv")
+    train_df = pd.read_json('../input/train.json', convert_dates=['created'])
+    test_df = pd.read_json('../input/test.json', convert_dates=['created'])
+    image_date = pd.read_csv('../input/listing_image_time.csv')
 
     return train_df, test_df, image_date
 
@@ -83,6 +85,7 @@ def prep_features(train_df, test_df):
     """ prepare features """
 
     def binner(feat, bins, dyn=True):
+        """ create bins for continuous features """
         out, featbins = pd.qcut(train_df[feat], bins, retbins=True, labels=False)
         train_df[feat + '_bin'] = out.astype(float)
         if dyn:
@@ -91,6 +94,7 @@ def prep_features(train_df, test_df):
             test_df[feat + '_bin'] = pd.qcut(test_df[feat], bins, labels=False).astype(float)
 
     def med(feat):
+        """ get median values from feature """
         comb = pd.concat([train_df, test_df])
         feat_uniq = comb[feat].unique()
         feat_med = {}
@@ -103,103 +107,34 @@ def prep_features(train_df, test_df):
         test_df[feat + '_value'] = test_df[feat + '_med'] - test_df['price']
 
     med('bedrooms')
-
     medlat = train_df['latitude'].median()
     medlon = train_df['longitude'].median()
 
     for data in [train_df, test_df]:
         # basic features
-        data["price_t"] = data["price"] / data["bedrooms"]
-        data["room_sum"] = data["bedrooms"] + data["bathrooms"]
-        data["layout"] = data["bathrooms"] + train_df["bedrooms"]
+        data['price_t'] = data['price'] / data['bedrooms']
+        data['room_sum'] = data['bedrooms'] + data['bathrooms']
+        data['layout'] = data['bathrooms'] + train_df['bedrooms']
         data['distance'] = (abs(data['longitude'] - medlon)**2 + abs(data['latitude'] - medlat)**2)**0.5
         data['chars'] = len(data['description'])
         data['exclaim'] = [x.count('!') for x in data['description']]
         data['shock'] = data['exclaim'] / data['chars'] * 100
+        data['halfbr'] = data['bathrooms'].apply(lambda x: 0 if round(x) == x else 1)
+        data['toobig'] = data['bedrooms'].apply(lambda x: 1 if x > 4 else 0)
+        data['month'] = data['created'].apply(lambda x: x.month).astype(object)
+        data['yearmonth'] = data['created'].apply(lambda x: str(x.year) + '_' + str(x.month))
+        data['day'] = data['created'].apply(lambda x: x.dayofweek)
+        data['weekend'] = data['day'].apply(lambda x: 1 if x == 5 or x == 6 else 0)
+        data['friday'] = data['day'].apply(lambda x: 1 if x == 4 else 0)
+        data['num_photos'] = data['photos'].apply(len)
+        data['nophoto'] = data['num_photos'].apply(lambda x: 1 if x == 0 else 0)
+        data['num_features'] = data['features'].apply(len)
+        data['num_description_words'] = data['description'].apply(lambda x: len(x.split(' ')))
+        data['upper_case'] = data['description'].apply(lambda x: sum(1 for i in x if i.isupper()))
+        data['upper_percent'] = data['upper_case']*100.0/data['description'].apply(lambda x: len(x))
+        data['address_distance'] = data[['street_address', 'display_address']].apply(lambda x: distance(*x), axis=1)
 
     binner('longitude', 20)
-
-    # halfbathrooms
-    def halfbr(n):
-        """ half bedrooms unpopular """
-        if round(n) == n:
-            return 0
-        else:
-            return 1
-    train_df["halfbr"] = train_df["bathrooms"].apply(lambda x: halfbr(x))
-    test_df["halfbr"] = test_df["bathrooms"].apply(lambda x: halfbr(x))
-
-    # toobig
-    def toobig(n):
-        """ too many rooms """
-        if n > 4:
-            return 1
-        else:
-            return 0
-    train_df["toobig"] = train_df["bedrooms"].apply(lambda x: toobig(x))
-    test_df["toobig"] = test_df["bedrooms"].apply(lambda x: toobig(x))
-
-    # month of year
-    train_df["month"] = train_df["created"].apply(lambda x: x.month).astype(object)
-    test_df["month"] = test_df["created"].apply(lambda x: x.month).astype(object)
-
-    # yearmonth
-    train_df["yearmonth"] = train_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
-    test_df["yearmonth"] = test_df["created"].apply(lambda x: str(x.year) + "_" + str(x.month))
-
-    # dayofweek
-    train_df["day"] = train_df["created"].apply(lambda x: x.dayofweek)
-    test_df["day"] = test_df["created"].apply(lambda x: x.dayofweek)
-
-    # weekend
-    def weekend(n):
-        """ weekend lethargy """
-        if n == 5 or n == 6:
-            return 1
-        else:
-            return 0
-
-    train_df["weekend"] = train_df["day"].apply(lambda x: weekend(x))
-    test_df["weekend"] = test_df["day"].apply(lambda x: weekend(x))
-    train_df["friday"] = train_df["day"].apply(lambda x: 1 if x == 4 else 0)
-    test_df["friday"] = test_df["day"].apply(lambda x: 1 if x == 4 else 0)
-
-
-    # count of photos #
-    train_df["num_photos"] = train_df["photos"].apply(len)
-    test_df["num_photos"] = test_df["photos"].apply(len)
-
-    # nophoto
-    def nophoto(n):
-        """ lack of photos """
-        if n == 0:
-            return 1
-        else:
-            return 0
-
-    train_df["nophoto"] = train_df["num_photos"].apply(lambda x: nophoto(x))
-    test_df["nophoto"] = test_df["num_photos"].apply(lambda x: nophoto(x))
-
-    # count of "features" #
-    train_df["num_features"] = train_df["features"].apply(len)
-    test_df["num_features"] = test_df["features"].apply(len)
-
-    # count of words present in description column #
-    train_df["num_description_words"] = train_df["description"].apply(lambda x: len(x.split(" ")))
-    test_df["num_description_words"] = test_df["description"].apply(lambda x: len(x.split(" ")))
-
-    # count of uppercase letters present
-    train_df["upper_case"] = train_df["description"].apply(lambda x: sum(1 for i in x if i.isupper()))
-    test_df["upper_case"] = test_df["description"].apply(lambda x: sum(1 for i in x if i.isupper()))
-
-    # upperpercent
-    train_df["upper_percent"] = train_df["upper_case"]*100.0/train_df["description"].apply(lambda x: len(x))
-    test_df["upper_percent"] = test_df["upper_case"]*100.0/test_df["description"].apply(lambda x: len(x))
-
-    # difference between addresses
-    train_df["address_distance"] = train_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
-    test_df["address_distance"] = test_df[["street_address", "display_address"]].apply(lambda x: distance(*x), axis=1)
-
     binner('price_t', 7, False)
 
     # cross variables
@@ -207,37 +142,37 @@ def prep_features(train_df, test_df):
     classes=12
     for i in xrange(97, 123):
         abc_list.append(str(chr(i)))
-    train_lon, lon_bins = pd.qcut(train_df["longitude"], classes, retbins=True, labels=abc_list[0:classes])
-    train_lat, lat_bins = pd.qcut(train_df["latitude"], classes, retbins=True, labels=abc_list[0:classes])
+    train_lon, lon_bins = pd.qcut(train_df['longitude'], classes, retbins=True, labels=abc_list[0:classes])
+    train_lat, lat_bins = pd.qcut(train_df['latitude'], classes, retbins=True, labels=abc_list[0:classes])
     train_lon = train_lon.astype(object)
     train_lat = train_lat.astype(object)
-    train_df["grid"] = train_lon + train_lat
-    test_lon = pd.cut(test_df["longitude"], lon_bins, labels=abc_list[0:classes]).astype(object)
-    test_lat = pd.cut(test_df["latitude"], lat_bins, labels=abc_list[0:classes]).astype(object)
-    test_df["grid"] = test_lon + test_lat
+    train_df['grid'] = train_lon + train_lat
+    test_lon = pd.cut(test_df['longitude'], lon_bins, labels=abc_list[0:classes]).astype(object)
+    test_lat = pd.cut(test_df['latitude'], lat_bins, labels=abc_list[0:classes]).astype(object)
+    test_df['grid'] = test_lon + test_lat
 
     le = preprocessing.LabelEncoder()
-    le.fit(train_df["grid"].append(test_df["grid"]))
-    train_df["grid"] = le.transform(train_df["grid"])
-    test_df["grid"] = le.transform(test_df["grid"])
+    le.fit(train_df['grid'].append(test_df['grid']))
+    train_df['grid'] = le.transform(train_df['grid'])
+    test_df['grid'] = le.transform(test_df['grid'])
 
     # rename columns so you can join tables later on
-    image_date.columns = ["listing_id", "time_stamp"]
+    image_date.columns = ['listing_id', 'time_stamp']
 
     # reassign the only one timestamp from April, all others from Oct/Nov
-    image_date.loc[80240,"time_stamp"] = 1478129766
-    image_date["img_date"] = pd.to_datetime(image_date["time_stamp"], unit="s")
-    image_date["img_days_passed"] = (image_date["img_date"].max() - image_date["img_date"]).astype("timedelta64[D]").astype(int)
-    image_date["img_date_month"] = image_date["img_date"].dt.month
-    image_date["img_date_week"] = image_date["img_date"].dt.week
-    image_date["img_date_day"] = image_date["img_date"].dt.day
-    image_date["img_date_dayofweek"] = image_date["img_date"].dt.dayofweek
-    image_date["img_date_dayofyear"] = image_date["img_date"].dt.dayofyear
-    image_date["img_date_hour"] = image_date["img_date"].dt.hour
-    image_date["img_date_monthBeginMidEnd"] = image_date["img_date_day"].apply(lambda x: 1 if x<10 else 2 if x<20 else 3)
+    image_date.loc[80240,'time_stamp'] = 1478129766
+    image_date['img_date'] = pd.to_datetime(image_date['time_stamp'], unit='s')
+    image_date['img_days_passed'] = (image_date['img_date'].max() - image_date['img_date']).astype('timedelta64[D]').astype(int)
+    image_date['img_date_month'] = image_date['img_date'].dt.month
+    image_date['img_date_week'] = image_date['img_date'].dt.week
+    image_date['img_date_day'] = image_date['img_date'].dt.day
+    image_date['img_date_dayofweek'] = image_date['img_date'].dt.dayofweek
+    image_date['img_date_dayofyear'] = image_date['img_date'].dt.dayofyear
+    image_date['img_date_hour'] = image_date['img_date'].dt.hour
+    image_date['img_date_monthBeginMidEnd'] = image_date['img_date_day'].apply(lambda x: 1 if x<10 else 2 if x<20 else 3)
 
-    train_df = pd.merge(train_df, image_date, on="listing_id", how="left")
-    test_df = pd.merge(test_df, image_date, on="listing_id", how="left")
+    train_df = pd.merge(train_df, image_date, on='listing_id', how='left')
+    test_df = pd.merge(test_df, image_date, on='listing_id', how='left')
 
     binner('time_stamp', 20)
 
@@ -245,11 +180,11 @@ def prep_features(train_df, test_df):
     clf = tree.DecisionTreeClassifier()
     params = ['bedrooms', 'bathrooms', 'num_features', 'grid']
     clf = clf.fit(train_df[params], train_df['price'])
-    train_df["exp_price"] = pd.DataFrame(clf.predict(train_df[params]).tolist()).set_index(train_df.index)
-    train_df["overprice"] = train_df["price"] - train_df["exp_price"]
+    train_df['exp_price'] = pd.DataFrame(clf.predict(train_df[params]).tolist()).set_index(train_df.index)
+    train_df['overprice'] = train_df['price'] - train_df['exp_price']
 
-    test_df["exp_price"] = pd.DataFrame(clf.predict(test_df[params]).tolist()).set_index(test_df.index)
-    test_df["overprice"] = test_df["price"] - test_df["exp_price"]
+    test_df['exp_price'] = pd.DataFrame(clf.predict(test_df[params]).tolist()).set_index(test_df.index)
+    test_df['overprice'] = test_df['price'] - test_df['exp_price']
 
     return train_df, test_df
 
@@ -259,14 +194,14 @@ train_df, test_df, image_date = loaddata()
 print('Extracting features')
 train_df, test_df = prep_features(train_df, test_df)
 
-features_to_use=["latitude", "longitude_bin", "bathrooms", "bedrooms", "address_distance",
-                 "price", "price_t", "num_photos", "num_features", "num_description_words",
-                 "listing_id", "time_stamp", "img_days_passed", "img_date_month", "img_date_week",
-                 "img_date_day", "img_date_dayofweek", "img_date_hour", "nophoto",
-                 "img_date_monthBeginMidEnd", "upper_case", "upper_percent", "halfbr",
-                 "exp_price", "price_t_bin", "layout", "distance", "bedrooms_value"]
+features_to_use=['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'address_distance',
+                 'price', 'price_t', 'num_photos', 'num_features', 'num_description_words',
+                 'listing_id', 'time_stamp', 'img_days_passed', 'img_date_month', 'img_date_week',
+                 'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
+                 'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
+                 'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value']
 
-categorical = ["display_address", "manager_id", "building_id", "street_address"]
+categorical = ['display_address', 'manager_id', 'building_id', 'street_address']
 
 print('Transforming categorical data')
 
@@ -286,7 +221,7 @@ def runXGB(train_X, train_y, test_X, test_y=None, feature_names=None, seed_val=0
     param['max_depth'] = 6
     param['silent'] = 1
     param['num_class'] = 3
-    param['eval_metric'] = "mlogloss"
+    param['eval_metric'] = 'mlogloss'
     param['min_child_weight'] = 1
     param['subsample'] = 0.7
     param['colsample_bytree'] = 0.7
@@ -392,11 +327,11 @@ for group in ['manager_id']:
     features_to_use.append(group + '_medium')
     features_to_use.append(group + '_high')
 
-train_df['features'] = train_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
-test_df['features'] = test_df["features"].apply(lambda x: " ".join(["_".join(i.split(" ")) for i in x]))
+train_df['features'] = train_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
+test_df['features'] = test_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
 tfidf = CountVectorizer(stop_words='english', max_features=200)
-tr_sparse = tfidf.fit_transform(train_df["features"])
-te_sparse = tfidf.transform(test_df["features"])
+tr_sparse = tfidf.fit_transform(train_df['features'])
+te_sparse = tfidf.transform(test_df['features'])
 
 train_X = sparse.hstack([train_df[features_to_use], tr_sparse]).tocsr()
 test_X = sparse.hstack([test_df[features_to_use], te_sparse]).tocsr()
@@ -419,7 +354,7 @@ for dev_index, val_index in kf.split(range(train_X.shape[0])):
 print('final prediction')
 preds, model = runXGB(train_X, train_y, test_X, num_rounds=EPOCHS)
 out_df = pd.DataFrame(preds)
-out_df.columns = ["high", "medium", "low"]
-out_df["listing_id"] = test_df.listing_id.values
+out_df.columns = ['high', 'medium', 'low']
+out_df['listing_id'] = test_df.listing_id.values
 out_df = correct(out_df, train=False, verbose=True)
-out_df.to_csv("../output/xgb_output.csv", index=False)
+out_df.to_csv('../output/xgb_output.csv', index=False)
