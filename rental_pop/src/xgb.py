@@ -15,6 +15,7 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
 import numpy as np
 import pandas as pd
+import re
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -110,6 +111,12 @@ def prep_features(train_df, test_df):
     medlat = train_df['latitude'].median()
     medlon = train_df['longitude'].median()
 
+    reg = re.compile(".*?(\(?\d{3}\D{0,3}\d{3}\D{0,3}\d{4}).*?", re.S)
+    def try_and_find_nr(description):
+        if reg.match(description) is None:
+            return 0
+        return 1
+
     for data in [train_df, test_df]:
         # basic features
         data['price_t'] = data['price'] / data['bedrooms']
@@ -133,6 +140,12 @@ def prep_features(train_df, test_df):
         data['upper_case'] = data['description'].apply(lambda x: sum(1 for i in x if i.isupper()))
         data['upper_percent'] = data['upper_case']*100.0/data['description'].apply(lambda x: len(x))
         data['address_distance'] = data[['street_address', 'display_address']].apply(lambda x: distance(*x), axis=1)
+        #data['num_redacted'] = 0
+        #data['num_redacted'].ix[data['description'].str.contains('website_redacted')] = 1
+        data['num_lines'] = data['description'].apply(lambda x: x.count('<br /><br />'))
+        data['num_email'] = 0
+        data['num_email'].ix[data['description'].str.contains('@')] = 1
+        #data['num_phone'] = data['description'].apply(try_and_find_nr)
 
     binner('longitude', 20)
     binner('price_t', 7, False)
@@ -199,7 +212,8 @@ features_to_use = ['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'addres
                    'listing_id', 'time_stamp', 'img_days_passed', 'img_date_month', 'img_date_week',
                    'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
                    'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
-                   'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value']
+                   'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value',
+                   'num_lines', 'num_email']
 
 categorical = ['display_address', 'manager_id', 'building_id', 'street_address']
 
