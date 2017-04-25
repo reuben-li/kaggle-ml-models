@@ -25,6 +25,13 @@ TOLERANCE = 50
 EPOCHS = 1300
 INTEREST = ['low', 'medium', 'high']
 
+location_dict = {
+        'manhattan_loc': [40.728333, -73.994167],
+        'brooklyn_loc': [40.67822, -73.952222],
+        'bronx_loc': [40.837222, -73.886111],
+        'queens_loc': [40.75, -73.866667],
+        'staten_loc': [40.576281, -74.144839]}
+
 def cart2rho(x, y):
     rho = np.sqrt(x**2 + y**2)
     return rho
@@ -37,7 +44,6 @@ def rotation_x(row, alpha):
     x = row['latitude']
     y = row['longitude']
     return x*math.cos(alpha) + y*math.sin(alpha)
-
 
 def rotation_y(row, alpha):
     x = row['latitude']
@@ -154,12 +160,6 @@ def prep_features(train_df, test_df):
     medlat = train_df['latitude'].median()
     medlon = train_df['longitude'].median()
 
-    #reg = re.compile(".*?(\(?\d{3}\D{0,3}\d{3}\D{0,3}\d{4}).*?", re.S)
-    #def try_and_find_nr(description):
-    #    if reg.match(description) is None:
-    #        return 0
-    #    return 1
-
     for data in [train_df, test_df]:
         # basic features
         data['price_t'] = data['price'] / data['bedrooms']
@@ -188,7 +188,13 @@ def prep_features(train_df, test_df):
         data['num_lines'] = data['description'].apply(lambda x: x.count('<br /><br />'))
         data['num_email'] = 0
         data['num_email'].ix[data['description'].str.contains('@')] = 1
-        #data['num_phone'] = data['description'].apply(try_and_find_nr)
+        for location in location_dict.keys():
+            dlat = location_dict[location][0] - data['latitude']
+            dlon = (location_dict[location][1] - data['longitude']) * np.cos(np.deg2rad(41))  #  adjust for NYC latitude
+            data['distance_' + location] = np.sqrt(dlat ** 2 + dlon ** 2) * 60     # distance in nautical miles
+        for i in ['elevator', 'pre-war']:
+            data[i] = data['features'].apply(lambda x: 1 if i in [y.lower() for y in x] else 0)
+
 
     binner('longitude', 20)
     binner('price_t', 7, False)
@@ -258,9 +264,14 @@ features_to_use = ['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'addres
                    'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
                    'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
                    'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value',
-                   'num_lines', 'num_email'
+                   'num_lines', 'num_email', 'elevator'
                    #'num_rho', 'num_phi', 'num_rot15_X', 'num_rot30_X', 'num_rot45_X', 'num_rot60_X',
                    ]
+
+for i in location_dict.keys():
+    features_to_use.append('distance_' + i)
+
+print(features_to_use)
 
 categorical = ['display_address', 'manager_id', 'building_id', 'street_address']
 
@@ -390,7 +401,7 @@ def cvstats():
 cvstats()
 train_df['features'] = train_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
 test_df['features'] = test_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
-tfidf = CountVectorizer(stop_words='english', max_features=180)
+tfidf = CountVectorizer(stop_words='english', max_features=200)
 tr_sparse = tfidf.fit_transform(train_df['features'])
 te_sparse = tfidf.transform(test_df['features'])
 
