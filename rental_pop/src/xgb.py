@@ -15,7 +15,7 @@ from sklearn.preprocessing import OneHotEncoder, LabelEncoder
 from Levenshtein import distance
 import numpy as np
 import pandas as pd
-import re
+import math
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -24,6 +24,49 @@ random.seed(0)
 TOLERANCE = 50
 EPOCHS = 1300
 INTEREST = ['low', 'medium', 'high']
+
+def cart2rho(x, y):
+    rho = np.sqrt(x**2 + y**2)
+    return rho
+
+def cart2phi(x, y):
+    phi = np.arctan2(y, x)
+    return phi
+
+def rotation_x(row, alpha):
+    x = row['latitude']
+    y = row['longitude']
+    return x*math.cos(alpha) + y*math.sin(alpha)
+
+
+def rotation_y(row, alpha):
+    x = row['latitude']
+    y = row['longitude']
+    return y*math.cos(alpha) - x*math.sin(alpha)
+
+
+def add_rotation(degrees, df):
+    namex = "rot" + str(degrees) + "_X"
+    namey = "rot" + str(degrees) + "_Y"
+
+    df['num_' + namex] = df.apply(lambda row: rotation_x(row, math.pi/(180/degrees)), axis=1)
+    df['num_' + namey] = df.apply(lambda row: rotation_y(row, math.pi/(180/degrees)), axis=1)
+
+    return df
+
+def operate_on_coordinates(tr_df, te_df):
+    for df in [tr_df, te_df]:
+
+        df["num_rho"] = df.apply(lambda x: cart2rho(x["latitude"] - 40.78222222, x["longitude"]+73.96527777), axis=1)
+        df["num_phi"] = df.apply(lambda x: cart2phi(x["latitude"] - 40.78222222, x["longitude"]+73.96527777), axis=1)
+
+        #rotations
+        print("calculating rotations")
+        for angle in [15,30,45,60]:
+            df = add_rotation(angle, df)
+
+    return tr_df, te_df
+
 
 def correct(df, train=True, verbose=False):
     """ Adjust results to data distribution """
@@ -111,11 +154,11 @@ def prep_features(train_df, test_df):
     medlat = train_df['latitude'].median()
     medlon = train_df['longitude'].median()
 
-    reg = re.compile(".*?(\(?\d{3}\D{0,3}\d{3}\D{0,3}\d{4}).*?", re.S)
-    def try_and_find_nr(description):
-        if reg.match(description) is None:
-            return 0
-        return 1
+    #reg = re.compile(".*?(\(?\d{3}\D{0,3}\d{3}\D{0,3}\d{4}).*?", re.S)
+    #def try_and_find_nr(description):
+    #    if reg.match(description) is None:
+    #        return 0
+    #    return 1
 
     for data in [train_df, test_df]:
         # basic features
@@ -169,6 +212,7 @@ def prep_features(train_df, test_df):
     train_df['grid'] = le.transform(train_df['grid'])
     test_df['grid'] = le.transform(test_df['grid'])
 
+
     # rename columns so you can join tables later on
     image_date.columns = ['listing_id', 'time_stamp']
 
@@ -206,6 +250,7 @@ train_df, test_df, image_date = loaddata()
 
 print('Extracting features')
 train_df, test_df = prep_features(train_df, test_df)
+#train_df, test_df = operate_on_coordinates(train_df, test_df)
 
 features_to_use = ['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'address_distance',
                    'price', 'price_t', 'num_photos', 'num_features', 'num_description_words',
@@ -213,7 +258,9 @@ features_to_use = ['latitude', 'longitude_bin', 'bathrooms', 'bedrooms', 'addres
                    'img_date_day', 'img_date_dayofweek', 'img_date_hour', 'nophoto',
                    'img_date_monthBeginMidEnd', 'upper_case', 'upper_percent', 'halfbr',
                    'exp_price', 'price_t_bin', 'layout', 'distance', 'bedrooms_value',
-                   'num_lines', 'num_email']
+                   'num_lines', 'num_email'
+                   #'num_rho', 'num_phi', 'num_rot15_X', 'num_rot30_X', 'num_rot45_X', 'num_rot60_X',
+                   ]
 
 categorical = ['display_address', 'manager_id', 'building_id', 'street_address']
 
@@ -343,7 +390,7 @@ def cvstats():
 cvstats()
 train_df['features'] = train_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
 test_df['features'] = test_df['features'].apply(lambda x: ' '.join(['_'.join(i.split(' ')) for i in x]))
-tfidf = CountVectorizer(stop_words='english', max_features=200)
+tfidf = CountVectorizer(stop_words='english', max_features=180)
 tr_sparse = tfidf.fit_transform(train_df['features'])
 te_sparse = tfidf.transform(test_df['features'])
 
