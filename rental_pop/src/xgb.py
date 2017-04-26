@@ -192,7 +192,7 @@ def prep_features(train_df, test_df):
             dlat = location_dict[location][0] - data['latitude']
             dlon = (location_dict[location][1] - data['longitude']) * np.cos(np.deg2rad(41))  #  adjust for NYC latitude
             data['distance_' + location] = np.sqrt(dlat ** 2 + dlon ** 2) * 60     # distance in nautical miles
-        for i in ['elevator', 'pre-war']:
+        for i in ['elevator']:
             data[i] = data['features'].apply(lambda x: 1 if i in [y.lower() for y in x] else 0)
 
 

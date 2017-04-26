@@ -22,6 +22,7 @@ def correct(df, train=True, verbose=False):
     else:
         tau = tau_test
         
+    index = df['listing_id']
     df_sum = df[interest_levels].sum(axis=1)
     df_correct = df[interest_levels].copy()
     
@@ -47,6 +48,7 @@ def correct(df, train=True, verbose=False):
         a = [tau[k] / y[k]  for k in interest_levels]
         print( a)
 
+    df_correct = pd.concat([index, df_correct], axis=1)
     return df_correct
 
 def create_ensemble():
