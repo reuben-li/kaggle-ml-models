@@ -15,6 +15,10 @@ for c, dtype in zip(prop.columns, prop.dtypes):
 	if dtype == np.float64:
 		prop[c] = prop[c].astype(np.float32)
 
+print('Feature engineering ...')
+
+prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
+
 print('Creating training set ...')
 
 df_train = train.merge(prop, how='left', on='parcelid')
