@@ -2,12 +2,31 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 import gc
+import os
 
 print('Loading data ...')
 
-train = pd.read_csv('../input/train_2016_v2.csv')
-prop = pd.read_csv('../input/properties_2016.csv')
-sample = pd.read_csv('../input/sample_submission.csv')
+train_p = '../input/train_p'
+prop_p = '../input/prop_p'
+sample_p= '../input/sample_p'
+
+if os.path.exists(train_p):
+   train = pd.read_pickle(train_p)
+else:
+   train = pd.read_csv('../input/train_2016_v2.csv')
+   train.to_pickle(train_p)
+
+if os.path.exists(prop_p):
+    prop = pd.read_pickle(prop_p)
+else:
+    prop = pd.read_csv('../input/properties_2016.csv')
+    prop.to_pickle(prop_p)
+
+if os.path.exists(sample_p):
+    sample = pd.read_pickle(sample_p)
+else:
+    sample = pd.read_csv('../input/sample_submission.csv')
+    sample.to_pickle(sample_p)
 
 print('Binding to float32')
 
@@ -86,4 +105,4 @@ for c in sub.columns[sub.columns != 'ParcelId']:
     sub[c] = p_test
 
 print('Writing csv ...')
-sub.to_csv('xgb_starter.csv', index=False, float_format='%.4f') # Thanks to @inversion
+sub.to_csv('results/xgb_starter.csv', index=False, float_format='%.4f') # Thanks to @inversion
