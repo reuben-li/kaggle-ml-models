@@ -21,6 +21,10 @@ if os.path.exists(prop_p):
     prop = pd.read_pickle(prop_p)
 else:
     prop = pd.read_csv('../input/properties_2016.csv')
+    print('Binding to float32')
+    for c, dtype in zip(prop.columns, prop.dtypes):
+        if dtype == np.float64:
+            prop[c] = prop[c].astype(np.float32)
     prop.to_pickle(prop_p)
 
 if os.path.exists(sample_p):
@@ -28,12 +32,6 @@ if os.path.exists(sample_p):
 else:
     sample = pd.read_csv('../input/sample_submission.csv')
     sample.to_pickle(sample_p)
-
-print('Binding to float32')
-
-for c, dtype in zip(prop.columns, prop.dtypes):
-    if dtype == np.float64:
-        prop[c] = prop[c].astype(np.float32)
 
 print('Feature engineering ...')
 
