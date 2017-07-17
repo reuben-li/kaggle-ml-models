@@ -4,6 +4,7 @@ import os
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from sklearn.preprocessing import LabelEncoder
 
 print('Loading data ...')
 
@@ -35,14 +36,20 @@ else:
 
 print('Feature engineering ...')
 
+# ratio of bed to bath
 prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 
 print('Creating training set ...')
 
 df_train = train.merge(prop, how='left', on='parcelid')
+df_train = df_train[df_train.logerror > -0.4 ]
+df_train = df_train[df_train.logerror < 0.418 ]
 
-x_train = df_train.drop(['parcelid', 'logerror', 'transactiondate', 'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
+x_train = df_train.drop([
+    'parcelid', 'logerror', 'transactiondate',
+    'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
 y_train = df_train['logerror'].values
+y_mean = np.mean(y_train)
 print(x_train.shape, y_train.shape)
 
 train_columns = x_train.columns
@@ -67,14 +74,18 @@ gc.collect()
 print('Training ...')
 
 params = {}
-params['eta'] = 0.02
+params['eta'] = 0.037
 params['objective'] = 'reg:linear'
 params['eval_metric'] = 'mae'
-params['max_depth'] = 4
+params['max_depth'] = 5
+params['subsample'] = 0.80
+params['lambda'] = 0.8
+params['alpha'] = 0.4
+params['base_score'] = y_mean
 params['silent'] = 1
 
 watchlist = [(d_train, 'train'), (d_valid, 'valid')]
-clf = xgb.train(params, d_train, 10000, watchlist, early_stopping_rounds=100, verbose_eval=10)
+clf = xgb.train(params, d_train, 10000, watchlist, early_stopping_rounds=50, verbose_eval=10)
 
 del d_train, d_valid
 
