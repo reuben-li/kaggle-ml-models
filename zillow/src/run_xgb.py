@@ -39,6 +39,20 @@ print('Feature engineering ...')
 # ratio of bed to bath
 prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 
+print('Encoding categorical features ...')
+
+CAT_FEATURES = [
+     'propertyzoningdesc'
+#    'hashottuborspa', 'propertycountylandusecode', 'propertyzoningdesc',
+#    'fireplaceflag', 'taxdelinquencyflag'
+]
+
+for c in CAT_FEATURES:
+    prop[c] = prop[c].fillna(-1)
+    lbl = LabelEncoder()
+    lbl.fit(list(prop[c].values))
+    prop[c] = lbl.transform(list(prop[c].values))
+
 print('Creating training set ...')
 
 df_train = train.merge(prop, how='left', on='parcelid')
@@ -47,7 +61,7 @@ df_train = df_train[df_train.logerror < 0.418 ]
 
 x_train = df_train.drop([
     'parcelid', 'logerror', 'transactiondate',
-    'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
+    'propertycountylandusecode'], axis=1)
 y_train = df_train['logerror'].values
 y_mean = np.mean(y_train)
 print(x_train.shape, y_train.shape)
