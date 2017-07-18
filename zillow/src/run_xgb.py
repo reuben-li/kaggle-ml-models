@@ -42,7 +42,7 @@ prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 print('Encoding categorical features ...')
 
 CAT_FEATURES = [
-     'propertyzoningdesc'
+     'regionidcity'
 #    'hashottuborspa', 'propertycountylandusecode', 'propertyzoningdesc',
 #    'fireplaceflag', 'taxdelinquencyflag'
 ]
@@ -61,7 +61,7 @@ df_train = df_train[df_train.logerror < 0.418 ]
 
 x_train = df_train.drop([
     'parcelid', 'logerror', 'transactiondate',
-    'propertycountylandusecode'], axis=1)
+    'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
 y_train = df_train['logerror'].values
 y_mean = np.mean(y_train)
 print(x_train.shape, y_train.shape)
