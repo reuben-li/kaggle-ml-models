@@ -39,10 +39,20 @@ print('Feature engineering ...')
 # ratio of bed to bath
 prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 
+abc_list = []
+classes=12
+for i in xrange(97, 123):
+    abc_list.append(str(chr(i)))
+prop_lon, lon_bins = pd.qcut(prop['longitude'], classes, retbins=True, labels=abc_list[0:classes])
+prop_lat, lat_bins = pd.qcut(prop['latitude'], classes, retbins=True, labels=abc_list[0:classes])
+prop_lon = prop_lon.astype(object)
+prop_lat = prop_lat.astype(object)
+prop['grid'] = prop_lon + prop_lat
+
 print('Encoding categorical features ...')
 
 CAT_FEATURES = [
-     'regionidcity'
+     'regionidcity', 'grid'
 #    'hashottuborspa', 'propertycountylandusecode', 'propertyzoningdesc',
 #    'fireplaceflag', 'taxdelinquencyflag'
 ]
