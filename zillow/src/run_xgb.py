@@ -1,3 +1,6 @@
+"""
+XGBoost
+"""
 from __future__ import print_function
 import gc
 import os
@@ -42,9 +45,9 @@ prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 print('Encoding categorical features ...')
 
 CAT_FEATURES = [
-     'regionidcity'
-#    'hashottuborspa', 'propertycountylandusecode', 'propertyzoningdesc',
-#    'fireplaceflag', 'taxdelinquencyflag'
+    'regionidcity'
+#   'hashottuborspa', 'propertycountylandusecode', 'propertyzoningdesc',
+#   'fireplaceflag', 'taxdelinquencyflag'
 ]
 
 for c in CAT_FEATURES:
