@@ -1,113 +1,159 @@
+"""
+XGBoost
+"""
 from __future__ import print_function
 import gc
 import os
 import numpy as np
 import pandas as pd
 import xgboost as xgb
+from sklearn.preprocessing import LabelEncoder
 
-print('Loading data ...')
+def load_data():
+    """ load dataset """
+    train_p = '../input/train_p'
+    prop_p = '../input/prop_p'
+    sample_p = '../input/sample_p'
 
-train_p = '../input/train_p'
-prop_p = '../input/prop_p'
-sample_p = '../input/sample_p'
+    if os.path.exists(train_p):
+        train = pd.read_pickle(train_p)
+    else:
+        train = pd.read_csv('../input/train_2016_v2.csv')
+        train.to_pickle(train_p)
 
-if os.path.exists(train_p):
-    train = pd.read_pickle(train_p)
-else:
-    train = pd.read_csv('../input/train_2016_v2.csv')
-    train.to_pickle(train_p)
+    if os.path.exists(prop_p):
+        prop = pd.read_pickle(prop_p)
+    else:
+        prop = pd.read_csv('../input/properties_2016.csv')
+        print('Binding to float32')
+        for col, dtype in zip(prop.columns, prop.dtypes):
+            if dtype == np.float64:
+                prop[col] = prop[col].astype(np.float32)
+        prop.to_pickle(prop_p)
 
-if os.path.exists(prop_p):
-    prop = pd.read_pickle(prop_p)
-else:
-    prop = pd.read_csv('../input/properties_2016.csv')
-    print('Binding to float32')
-    for c, dtype in zip(prop.columns, prop.dtypes):
-        if dtype == np.float64:
-            prop[c] = prop[c].astype(np.float32)
-    prop.to_pickle(prop_p)
+    if os.path.exists(sample_p):
+        sample = pd.read_pickle(sample_p)
+    else:
+        sample = pd.read_csv('../input/sample_submission.csv')
+        sample.to_pickle(sample_p)
+    return prop, train, sample
 
-if os.path.exists(sample_p):
-    sample = pd.read_pickle(sample_p)
-else:
-    sample = pd.read_csv('../input/sample_submission.csv')
-    sample.to_pickle(sample_p)
+def feature_engineering(prop):
+    """ create custom features """
 
-print('Feature engineering ...')
+    # ratio of bed to bath
+    prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 
-prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
+    print('Encoding categorical features ...')
 
-print('Creating training set ...')
+    cat_features = [
+        'regionidcity'
+    ]
 
-df_train = train.merge(prop, how='left', on='parcelid')
+    for cat in cat_features:
+        prop[cat] = prop[cat].fillna(-1)
+        lbl = LabelEncoder()
+        lbl.fit(list(prop[cat].values))
+        prop[cat] = lbl.transform(list(prop[cat].values))
+    return prop
 
-x_train = df_train.drop(['parcelid', 'logerror', 'transactiondate', 'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
-y_train = df_train['logerror'].values
-print(x_train.shape, y_train.shape)
+def create_trainset(train, prop):
+    """ creating training dataset """
+    df_train = train.merge(prop, how='left', on='parcelid')
+    df_train = df_train[df_train.logerror > -0.4]
+    df_train = df_train[df_train.logerror < 0.418]
 
-train_columns = x_train.columns
+    x_train = df_train.drop([
+        'parcelid', 'logerror', 'transactiondate',
+        'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
+    y_train = df_train['logerror'].values
+    y_mean = np.mean(y_train)
+    print(x_train.shape, y_train.shape)
 
-for c in x_train.dtypes[x_train.dtypes == object].index.values:
-    x_train[c] = (x_train[c] is True)
+    train_columns = x_train.columns
 
-del df_train
-gc.collect()
+    for col in x_train.dtypes[x_train.dtypes == object].index.values:
+        x_train[col] = (x_train[col] is True)
 
-split = 80000
-x_train, y_train, x_valid, y_valid = x_train[:split], y_train[:split], x_train[split:], y_train[split:]
+    del df_train
+    gc.collect()
 
-print('Building DMatrix...')
+    split = 80000
+    x_train, y_train, x_valid, y_valid = \
+            x_train[:split], y_train[:split], x_train[split:], y_train[split:]
 
-d_train = xgb.DMatrix(x_train, label=y_train)
-d_valid = xgb.DMatrix(x_valid, label=y_valid)
+    print('Building DMatrix...')
 
-del x_train, x_valid
-gc.collect()
+    d_train = xgb.DMatrix(x_train, label=y_train)
+    d_valid = xgb.DMatrix(x_valid, label=y_valid)
 
-print('Training ...')
+    del x_train, x_valid
+    gc.collect()
 
-params = {}
-params['eta'] = 0.02
-params['objective'] = 'reg:linear'
-params['eval_metric'] = 'mae'
-params['max_depth'] = 4
-params['silent'] = 1
+    print('Training ...')
 
-watchlist = [(d_train, 'train'), (d_valid, 'valid')]
-clf = xgb.train(params, d_train, 10000, watchlist, early_stopping_rounds=100, verbose_eval=10)
+    params = {}
+    params['eta'] = 0.037
+    params['objective'] = 'reg:linear'
+    params['eval_metric'] = 'mae'
+    params['max_depth'] = 5
+    params['subsample'] = 0.80
+    params['lambda'] = 0.8
+    params['alpha'] = 0.4
+    params['base_score'] = y_mean
+    params['silent'] = 1
 
-del d_train, d_valid
+    clf = xgb.train(params, d_train, 10000, [(d_train, 'train'), (d_valid, 'valid')],
+                    early_stopping_rounds=50, verbose_eval=10)
 
-print('Building test set ...')
+    del d_train, d_valid
 
-sample['parcelid'] = sample['ParcelId']
-df_test = sample.merge(prop, on='parcelid', how='left')
+    return train_columns, clf
 
-del prop
-gc.collect()
+def main():
+    """ main function """
 
-x_test = df_test[train_columns]
-for c in x_test.dtypes[x_test.dtypes == object].index.values:
-    x_test[c] = (x_test[c] is True)
+    print('Loading data ...')
+    prop, train, sample = load_data()
 
-del df_test, sample
-gc.collect()
+    print('Feature engineering ...')
+    prop = feature_engineering(prop)
 
-d_test = xgb.DMatrix(x_test)
+    print('Creating training set ...')
+    train_columns, clf = create_trainset(train, prop)
 
-del x_test
-gc.collect()
+    print('Building test set ...')
 
-print('Predicting on test ...')
+    sample['parcelid'] = sample['ParcelId']
+    df_test = sample.merge(prop, on='parcelid', how='left')
 
-p_test = clf.predict(d_test)
+    del prop
+    gc.collect()
 
-del d_test
-gc.collect()
+    x_test = df_test[train_columns]
+    for col in x_test.dtypes[x_test.dtypes == object].index.values:
+        x_test[col] = (x_test[col] is True)
 
-sub = pd.read_csv('../input/sample_submission.csv')
-for c in sub.columns[sub.columns != 'ParcelId']:
-    sub[c] = p_test
+    del df_test, sample
+    gc.collect()
 
-print('Writing csv ...')
-sub.to_csv('results/xgb_starter.csv', index=False, float_format='%.4f') # Thanks to @inversion
+    d_test = xgb.DMatrix(x_test)
+
+    del x_test
+    gc.collect()
+
+    print('Predicting on test ...')
+
+    p_test = clf.predict(d_test)
+
+    del d_test
+    gc.collect()
+
+    sub = pd.read_csv('../input/sample_submission.csv')
+    for col in sub.columns[sub.columns != 'ParcelId']:
+        sub[col] = p_test
+
+    print('Writing csv ...')
+    sub.to_csv('results/xgb_starter.csv', index=False, float_format='%.4f')
+
+main()
