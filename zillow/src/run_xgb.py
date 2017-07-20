@@ -38,6 +38,14 @@ def load_data():
         sample.to_pickle(sample_p)
     return prop, train, sample
 
+def binning(field, bincnt, qnt=False):
+    """ sort into bins """
+    if not qnt:
+        out = pd.qcut(field, bincnt, labels=False)
+    else:
+        out = pd.cut(field, bincnt, labels=False)
+    return out.astype(float)
+
 def feature_engineering(prop):
     """ create custom features """
 
