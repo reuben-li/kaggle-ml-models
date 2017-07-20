@@ -72,8 +72,8 @@ def feature_engineering(prop):
 def create_trainset(train, prop):
     """Create training dataset"""
     df_train = train.merge(prop, how='left', on='parcelid')
-    df_train = df_train[df_train.logerror > -0.4]
-    df_train = df_train[df_train.logerror < 0.418]
+    df_train = df_train[df_train.logerror > -0.21]
+    df_train = df_train[df_train.logerror < 0.27]
 
     x_train = df_train.drop([
         'parcelid', 'logerror', 'transactiondate',
