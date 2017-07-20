@@ -1,16 +1,17 @@
-"""
-XGBoost
-"""
+"""XGBoost"""
+
 from __future__ import print_function
 import gc
 import os
+
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from sklearn.preprocessing import LabelEncoder
+import xgboost as xgb
+
 
 def load_data():
-    """ load dataset """
+    """Load dataset"""
     train_p = '../input/train_p'
     prop_p = '../input/prop_p'
     sample_p = '../input/sample_p'
@@ -38,17 +39,18 @@ def load_data():
         sample.to_pickle(sample_p)
     return prop, train, sample
 
+
 def binning(field, bincnt, qnt=False):
-    """ sort into bins """
+    """Sort into bins"""
     if not qnt:
         out = pd.qcut(field, bincnt, labels=False)
     else:
         out = pd.cut(field, bincnt, labels=False)
     return out.astype(float)
 
-def feature_engineering(prop):
-    """ create custom features """
 
+def feature_engineering(prop):
+    """Create custom features"""
     # ratio of bed to bath
     prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
 
@@ -66,8 +68,9 @@ def feature_engineering(prop):
         prop[cat] = lbl.transform(list(prop[cat].values))
     return prop
 
+
 def create_trainset(train, prop):
-    """ creating training dataset """
+    """Create training dataset"""
     df_train = train.merge(prop, how='left', on='parcelid')
     df_train = df_train[df_train.logerror > -0.4]
     df_train = df_train[df_train.logerror < 0.418]
@@ -89,7 +92,7 @@ def create_trainset(train, prop):
 
     split = 80000
     x_train, y_train, x_valid, y_valid = \
-            x_train[:split], y_train[:split], x_train[split:], y_train[split:]
+        x_train[:split], y_train[:split], x_train[split:], y_train[split:]
 
     print('Building DMatrix...')
 
@@ -112,16 +115,17 @@ def create_trainset(train, prop):
     params['base_score'] = y_mean
     params['silent'] = 1
 
-    clf = xgb.train(params, d_train, 10000, [(d_train, 'train'), (d_valid, 'valid')],
-                    early_stopping_rounds=50, verbose_eval=10)
+    clf = xgb.train(params, d_train, 10000, [(d_train, 'train'),
+                    (d_valid, 'valid')], early_stopping_rounds=50,
+                    verbose_eval=10)
 
     del d_train, d_valid
 
     return train_columns, clf
 
-def main():
-    """ main function """
 
+def main():
+    """Run the main function"""
     print('Loading data ...')
     prop, train, sample = load_data()
 
@@ -165,4 +169,5 @@ def main():
     print('Writing csv ...')
     sub.to_csv('results/xgb_starter.csv', index=False, float_format='%.4f')
 
-main()
+if __name__ == '__main__':
+    main()
