@@ -47,7 +47,8 @@ def feature_engineering(prop):
     print('Encoding categorical features ...')
 
     cat_features = [
-        'regionidcity'
+        'regionidcity',
+        'yearbuilt'
     ]
 
     for cat in cat_features:
