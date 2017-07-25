@@ -7,6 +7,7 @@ import os
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn import model_selection
 from sklearn.preprocessing import LabelEncoder
 
 
@@ -53,6 +54,7 @@ def feature_engineering(prop):
     """Create custom features"""
     # ratio of bed to bath
     prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
+    # prop['city'] = prop['rawcensustractandblock'][0:4]
 
     print('Encoding categorical features ...')
 
@@ -71,6 +73,16 @@ def feature_engineering(prop):
 
 def create_trainset(train, prop):
     """Create training dataset"""
+    params = {}
+    params['learning_rate'] = 0.037
+    params['boosting_type'] = 'dart'
+    params['objective'] = 'regression'
+    params['metric'] = 'mae'
+    params['sub_feature'] = 0.8
+    params['num_leaves'] = 60
+    params['verbose'] = 0
+    params['min_hessian'] = 1
+
     df_train = train.merge(prop, how='left', on='parcelid')
     df_train = df_train[df_train.logerror > -0.21]
     df_train = df_train[df_train.logerror < 0.27]
@@ -89,53 +101,37 @@ def create_trainset(train, prop):
     del df_train
     gc.collect()
 
-    split = 80000
-    x_train, y_train, x_valid, y_valid = \
-        x_train[:split], y_train[:split], x_train[split:], y_train[split:]
-    x_train = x_train.values.astype(np.float32, copy=False)
-    x_valid = x_valid.values.astype(np.float32, copy=False)
-
-    print('Building DMatrix...')
-
-    d_train = lgb.Dataset(x_train, label=y_train)
-    d_valid = lgb.Dataset(x_valid, label=y_valid)
-
-    del x_train, x_valid
-    gc.collect()
-
     print('Training ...')
 
-    params = {}
-    params['learning_rate'] = 0.037
-    params['boosting_type'] = 'gbdt'
-    params['objective'] = 'regression'
-    params['metric'] = 'mae'
-    params['sub_feature'] = 0.8
-    params['num_leaves'] = 60
-    params['min_data'] = 500
-    params['min_hessian'] = 1
+    x_train = x_train.values.astype(np.float32, copy=False)
 
-    """
-    params = {}
-    params['eta'] = 0.037
-    params['objective'] = 'reg:linear'
-    params['eval_metric'] = 'mae'
-    params['max_depth'] = 5
-    params['subsample'] = 0.80
-    params['lambda'] = 0.8
-    params['alpha'] = 0.4
-    params['base_score'] = y_mean
-    params['silent'] = 1
-    """
+    d_train = lgb.Dataset(x_train, label=y_train)
 
-    watchlist = [d_valid]
-    clf = lgb.train(params, d_train, 500, watchlist, early_stopping_rounds=50)
+    cv_scores = []
+    rounds = []
+    kf = model_selection.KFold(n_splits=5, shuffle=True, random_state=2016)
+    for dev_index, val_index in kf.split(range(x_train.shape[0])):
+        dev_X, val_X = x_train[dev_index, :], x_train[val_index, :]
+        dev_y, val_y = y_train[dev_index], y_train[val_index]
+        e_train = lgb.Dataset(dev_X, label=dev_y)
+        e_valid = lgb.Dataset(val_X, label=val_y)
+        clf = lgb.train(
+            params, e_train, 1000, [e_valid], verbose_eval=50,
+            early_stopping_rounds=50)
+        score = clf.best_score['valid_0']['l1']
+        cv_scores.append(score)
+        rounds.append(clf.best_iteration)
+    print(cv_scores)
+    print(round(np.mean(cv_scores), 8))
+    print(rounds)
+    print(np.mean(rounds))
 
-    # clf = xgb.train(params, d_train, 10000, [(d_train, 'train'),
-    #                (d_valid, 'valid')], early_stopping_rounds=50,
-    #                verbose_eval=10)
+    del x_train
+    gc.collect()
 
-    del d_train, d_valid
+    clf = lgb.train(params, d_train, np.max(rounds))
+
+    del d_train
     gc.collect()
 
     return train_columns, clf
