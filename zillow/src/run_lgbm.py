@@ -41,7 +41,7 @@ def load_data():
     return prop, train, sample
 
 
-def binning(field, bincnt, qnt=False):
+def binner(field, bincnt, qnt=False):
     """Sort into bins"""
     if not qnt:
         out = pd.qcut(field, bincnt, labels=False)
@@ -54,13 +54,31 @@ def feature_engineering(prop):
     """Create custom features"""
     # ratio of bed to bath
     prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
-    # prop['city'] = prop['rawcensustractandblock'][0:4]
+    prop['city'] = prop['rawcensustractandblock'][0:4]
+
+    # prop['taxamount_bin'] = binner(prop['taxamount'], 12, True)
+
+    abc_list = []
+    classes = 20
+    for i in xrange(97, 123):
+        abc_list.append(str(chr(i)))
+    prop_lon, lon_bins = pd.qcut(prop['longitude'],
+                                 classes, retbins=True,
+                                 labels=abc_list[0:classes])
+    prop_lat, lat_bins = pd.qcut(prop['latitude'],
+                                 classes, retbins=True,
+                                 labels=abc_list[0:classes])
+    prop_lon = prop_lon.astype(object)
+    prop_lat = prop_lat.astype(object)
+    prop['grid'] = prop_lon + prop_lat
 
     print('Encoding categorical features ...')
 
     cat_features = [
         'regionidcity',
-        'yearbuilt'
+        'yearbuilt',
+        'grid',
+        'city'
     ]
 
     for cat in cat_features:
@@ -88,6 +106,7 @@ def create_trainset(train, prop):
     df_train = df_train[df_train.logerror < 0.27]
 
     x_train = df_train.drop([
+        'fireplacecnt',
         'parcelid', 'logerror', 'transactiondate',
         'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
     y_train = df_train['logerror'].values
