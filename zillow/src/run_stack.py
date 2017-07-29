@@ -280,7 +280,7 @@ def run_ols(prop, train):
 
 def ensemble(lgb_pred, xgb_pred, reg, col, prop, sample):
     """Combine models"""
-    XGB_WEIGHT = 0.6300
+    XGB_WEIGHT = 0.4000
     BASELINE_WEIGHT = 0.0056
     OLS_WEIGHT = 0.0550
     BASELINE_PRED = 0.0115
