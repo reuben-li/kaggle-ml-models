@@ -182,20 +182,6 @@ def create_xgb_trainset(train, prop):
     del df_train
     gc.collect()
 
-    split = 80000
-    x_train, y_train, x_valid, y_valid = \
-        x_train[:split], y_train[:split], x_train[split:], y_train[split:]
-
-    print('Building DMatrix...')
-
-    d_train = xgb.DMatrix(x_train, label=y_train)
-    d_valid = xgb.DMatrix(x_valid, label=y_valid)
-
-    del x_train, x_valid
-    gc.collect()
-
-    print('Training ...')
-
     params = {}
     params['eta'] = 0.037
     params['objective'] = 'reg:linear'
@@ -207,11 +193,36 @@ def create_xgb_trainset(train, prop):
     params['base_score'] = y_mean
     params['silent'] = 1
 
-    clf = xgb.train(params, d_train, 10000, [(d_train, 'train'),
-                    (d_valid, 'valid')], early_stopping_rounds=50,
-                    verbose_eval=10)
+    x_train = x_train.values.astype(np.float32, copy=False)
+    d_train = xgb.DMatrix(x_train, label=y_train)
 
-    del d_train, d_valid
+    cv_scores = []
+    rounds = []
+    kf = model_selection.KFold(n_splits=5, shuffle=True, random_state=2016)
+    for dev_index, val_index in kf.split(range(x_train.shape[0])):
+        dev_X, val_X = x_train[dev_index, :], x_train[val_index, :]
+        dev_y, val_y = y_train[dev_index], y_train[val_index]
+        e_train = xgb.DMatrix(dev_X, label=dev_y)
+        e_valid = xgb.DMatrix(val_X, label=val_y)
+        clf = xgb.train(
+            params, e_train, 1000, [(e_valid, 'valid')], verbose_eval=200,
+            early_stopping_rounds=50)
+        score = clf.best_score
+        cv_scores.append(score)
+        rounds.append(clf.best_iteration)
+    print(cv_scores)
+    print(round(np.mean(cv_scores), 8))
+    print(rounds)
+    print(np.mean(rounds))
+
+    del x_train
+    gc.collect()
+
+    print('Training ...')
+
+    clf = xgb.train(params, d_train, np.max(rounds))
+
+    del d_train
 
     return train_columns, clf
 
