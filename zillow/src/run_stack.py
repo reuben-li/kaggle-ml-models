@@ -329,6 +329,7 @@ def ensemble(lgb_pred, xgb_pred, reg, col, prop, sample):
 
     print("\nCombined XGB/LGB/baseline/OLS predictions:")
     print(sample.head())
+    del sample['parcelid']
 
     print("\nWriting results to disk ...")
     sample.to_csv('results/sub{}.csv'
