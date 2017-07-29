@@ -141,7 +141,7 @@ def create_lgb_trainset(x_train, y_train):
         score = clf.best_score['valid_0']['l1']
         cv_scores.append(score)
         rounds.append(clf.best_iteration)
-    print('XGB scores')
+    print('LGB scores')
     print(cv_scores)
     print(round(np.mean(cv_scores), 8))
     print(rounds)
@@ -188,7 +188,7 @@ def create_xgb_trainset(x_train, y_train):
         score = clf.best_score
         cv_scores.append(score)
         rounds.append(clf.best_iteration)
-    print('LGB scores')
+    print('XGB scores')
     print(cv_scores)
     print(round(np.mean(cv_scores), 8))
     print(rounds)
@@ -217,7 +217,7 @@ def run_gb(prop, sample, clf, train_columns, model):
 
     x_test = df_test[train_columns]
     for col in x_test.dtypes[x_test.dtypes == object].index.values:
-        x_test[col] = (x_test[col] is True)
+        x_test.loc[:, col] = (x_test[col] is True)
 
     del df_test, sample
     gc.collect()
@@ -306,6 +306,7 @@ def ensemble(lgb_pred, xgb_pred, reg, col, prop, sample):
 
     test['transactiondate'] = '2016-01-01'
     test = get_time_features(test[col])
+    test = test.replace([np.inf, -np.inf], np.nan)
 
     for i in range(len(test_dates)):
         test['transactiondate'] = test_dates[i]
