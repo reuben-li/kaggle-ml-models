@@ -55,7 +55,7 @@ def binner(field, bincnt, qnt=False):
     return out.astype(float)
 
 
-def feature_engineering(prop):
+def feature_engineering(prop, train):
     """Create custom features"""
     # ratio of bed to bath
     prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
@@ -91,20 +91,6 @@ def feature_engineering(prop):
         lbl = LabelEncoder()
         lbl.fit(list(prop[cat].values))
         prop[cat] = lbl.transform(list(prop[cat].values))
-    return prop
-
-
-def create_lgb_trainset(train, prop):
-    """Create training dataset"""
-    params = {}
-    params['learning_rate'] = 0.037
-    params['boosting_type'] = 'dart'
-    params['objective'] = 'regression'
-    params['metric'] = 'mae'
-    params['sub_feature'] = 0.8
-    params['num_leaves'] = 60
-    params['verbose'] = 0
-    params['min_hessian'] = 1
 
     df_train = train.merge(prop, how='left', on='parcelid')
     df_train = df_train[df_train.logerror > -0.21]
@@ -115,19 +101,29 @@ def create_lgb_trainset(train, prop):
         'parcelid', 'logerror', 'transactiondate',
         'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
     y_train = df_train['logerror'].values
-    print(x_train.shape, y_train.shape)
-
     train_columns = x_train.columns
 
     for col in x_train.dtypes[x_train.dtypes == object].index.values:
         x_train[col] = (x_train[col] is True)
+    x_train = x_train.values.astype(np.float32, copy=False)
 
     del df_train
     gc.collect()
 
-    print('Training ...')
+    return prop, x_train, y_train, train_columns
 
-    x_train = x_train.values.astype(np.float32, copy=False)
+
+def create_lgb_trainset(x_train, y_train):
+    """Create training dataset"""
+    params = {}
+    params['learning_rate'] = 0.037
+    params['boosting_type'] = 'dart'
+    params['objective'] = 'regression'
+    params['metric'] = 'mae'
+    params['sub_feature'] = 0.8
+    params['num_leaves'] = 60
+    params['verbose'] = 0
+    params['min_hessian'] = 1
 
     d_train = lgb.Dataset(x_train, label=y_train)
 
@@ -145,10 +141,10 @@ def create_lgb_trainset(train, prop):
         score = clf.best_score['valid_0']['l1']
         cv_scores.append(score)
         rounds.append(clf.best_iteration)
+    print('XGB scores')
     print(cv_scores)
     print(round(np.mean(cv_scores), 8))
     print(rounds)
-    print(np.mean(rounds))
 
     del x_train
     gc.collect()
@@ -158,29 +154,12 @@ def create_lgb_trainset(train, prop):
     del d_train
     gc.collect()
 
-    return train_columns, clf
+    return clf
 
 
-def create_xgb_trainset(train, prop):
+def create_xgb_trainset(x_train, y_train):
     """Create training dataset"""
-    df_train = train.merge(prop, how='left', on='parcelid')
-    df_train = df_train[df_train.logerror > -0.21]
-    df_train = df_train[df_train.logerror < 0.27]
-
-    x_train = df_train.drop([
-        'parcelid', 'logerror', 'transactiondate',
-        'propertyzoningdesc', 'propertycountylandusecode'], axis=1)
-    y_train = df_train['logerror'].values
     y_mean = np.mean(y_train)
-    print(x_train.shape, y_train.shape)
-
-    train_columns = x_train.columns
-
-    for col in x_train.dtypes[x_train.dtypes == object].index.values:
-        x_train[col] = (x_train[col] is True)
-
-    del df_train
-    gc.collect()
 
     params = {}
     params['eta'] = 0.037
@@ -193,27 +172,26 @@ def create_xgb_trainset(train, prop):
     params['base_score'] = y_mean
     params['silent'] = 1
 
-    x_train = x_train.values.astype(np.float32, copy=False)
     d_train = xgb.DMatrix(x_train, label=y_train)
 
     cv_scores = []
     rounds = []
-    kf = model_selection.KFold(n_splits=5, shuffle=True, random_state=2016)
+    kf = model_selection.KFold(n_splits=2, shuffle=True, random_state=2016)
     for dev_index, val_index in kf.split(range(x_train.shape[0])):
         dev_X, val_X = x_train[dev_index, :], x_train[val_index, :]
         dev_y, val_y = y_train[dev_index], y_train[val_index]
         e_train = xgb.DMatrix(dev_X, label=dev_y)
         e_valid = xgb.DMatrix(val_X, label=val_y)
         clf = xgb.train(
-            params, e_train, 1000, [(e_valid, 'valid')], verbose_eval=200,
+            params, e_train, 10, [(e_valid, 'valid')], verbose_eval=200,
             early_stopping_rounds=50)
         score = clf.best_score
         cv_scores.append(score)
         rounds.append(clf.best_iteration)
+    print('LGB scores')
     print(cv_scores)
     print(round(np.mean(cv_scores), 8))
     print(rounds)
-    print(np.mean(rounds))
 
     del x_train
     gc.collect()
@@ -224,10 +202,10 @@ def create_xgb_trainset(train, prop):
 
     del d_train
 
-    return train_columns, clf
+    return clf
 
 
-def run_gb(train, prop, sample, clf, train_columns, model):
+def run_gb(prop, sample, clf, train_columns, model):
     """Gradient Boosting"""
     print('Building test set ...')
 
@@ -244,12 +222,13 @@ def run_gb(train, prop, sample, clf, train_columns, model):
     del df_test, sample
     gc.collect()
 
-    if model == 'XGB':
-        x_test = xgb.DMatrix(x_test)
-
     print('Predicting on test ...')
-
-    p_test = clf.predict(x_test)
+    if model == 'XGB':
+        x_test = x_test.values.astype(np.float32, copy=False)
+        d_test = xgb.DMatrix(x_test)
+        p_test = clf.predict(d_test)
+    else:
+        p_test = clf.predict(x_test)
 
     del x_test
     gc.collect()
@@ -258,10 +237,10 @@ def run_gb(train, prop, sample, clf, train_columns, model):
 
 def get_time_features(df):
     """Time features"""
-    df["transactiondate"] = pd.to_datetime(df["transactiondate"])
-    df["transactiondate_year"] = df["transactiondate"].dt.year
-    df["transactiondate_month"] = df["transactiondate"].dt.month
-    df['transactiondate'] = df['transactiondate'].dt.quarter
+    df.loc[:, 'transactiondate'] = pd.to_datetime(df['transactiondate'])
+    df.loc[:, 'transactiondate_year'] = df['transactiondate'].dt.year
+    df.loc[:, 'transactiondate_month'] = df['transactiondate'].dt.month
+    df.loc[:, 'transactiondate'] = df['transactiondate'].dt.quarter
     df = df.fillna(-1.0)
     return df
 
@@ -271,12 +250,11 @@ def MAE(y, ypred):
     return np.sum([abs(y[i] - ypred[i]) for i in range(len(y))]) / len(y)
 
 
-def run_ols():
+def run_ols(prop, train):
     """Run OLS"""
     np.random.seed(17)
     random.seed(17)
-
-    prop, train, sample = load_data()
+    prop = prop.replace([np.inf, -np.inf], np.nan)
 
     train = pd.merge(train, prop, how='left', on='parcelid')
     y = train['logerror'].values
@@ -289,8 +267,6 @@ def run_ols():
     col = [c for c in train.columns if c not in exc]
 
     train = get_time_features(train[col])
-    print(np.any(np.isnan(train)))
-    print(np.all(np.isfinite(train)))
 
     reg = LinearRegression(n_jobs=-1)
     reg.fit(train, y)
@@ -356,22 +332,22 @@ def main():
     prop, train, sample = load_data()
 
     print('Feature engineering ...')
-    prop = feature_engineering(prop)
-
-    print('Creating LGB model ...')
-    ltrain_columns, lclf = create_lgb_trainset(train, prop)
-
-    print('Creating XGB model ...')
-    xtrain_columns, xclf = create_xgb_trainset(train, prop)
-
-    print('Predicting with LGB ...')
-    lgb_results = run_gb(train, prop, sample, lclf, ltrain_columns, 'LGB')
-
-    print('Predicting with XGB ...')
-    xgb_results = run_gb(train, prop, sample, xclf, xtrain_columns, 'XGB')
+    prop, x_train, y_train, train_columns = feature_engineering(prop, train)
 
     print('Fit OLS model ...')
-    reg, col = run_ols()
+    reg, col = run_ols(prop, train)
+
+    print('Creating LGB model ...')
+    lclf = create_lgb_trainset(x_train, y_train)
+
+    print('Predicting with LGB ...')
+    lgb_results = run_gb(prop, sample, lclf, train_columns, 'LGB')
+
+    print('Creating XGB model ...')
+    xclf = create_xgb_trainset(x_train, y_train)
+
+    print('Predicting with XGB ...')
+    xgb_results = run_gb(prop, sample, xclf, train_columns, 'XGB')
 
     print('Ensembling')
     ensemble(lgb_results, xgb_results, reg, col, prop, sample)
