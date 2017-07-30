@@ -92,6 +92,21 @@ def feature_engineering(prop):
     return prop
 
 
+def clean_lgb_data(df):
+    """Clean data"""
+    df = df[df.logerror > -0.21]
+    df = df[df.logerror < 0.27]
+    df = df[df.bedroomcnt < 8]
+    return df
+
+
+def clean_xgb_data(df):
+    """Clean data"""
+    df = df[df.logerror > -0.21]
+    df = df[df.logerror < 0.27]
+    return df
+
+
 def create_lgb_trainset(train, prop):
     """Create training dataset"""
     params = {}
@@ -105,9 +120,7 @@ def create_lgb_trainset(train, prop):
     params['min_hessian'] = 1
 
     df_train = train.merge(prop, how='left', on='parcelid')
-    df_train = df_train[df_train.logerror > -0.21]
-    df_train = df_train[df_train.logerror < 0.27]
-    df_train = df_train[df_train.bedroomcnt < 8]
+    df_train = clean_lgb_data(df_train)
 
     x_train = df_train.drop([
         'fireplacecnt',
@@ -163,8 +176,7 @@ def create_lgb_trainset(train, prop):
 def create_xgb_trainset(train, prop):
     """Create training dataset"""
     df_train = train.merge(prop, how='left', on='parcelid')
-    df_train = df_train[df_train.logerror > -0.21]
-    df_train = df_train[df_train.logerror < 0.27]
+    df_train = clean_xgb_data(df_train)
 
     x_train = df_train.drop([
         'parcelid', 'logerror', 'transactiondate',
@@ -259,13 +271,10 @@ def MAE(y, ypred):
     return np.sum([abs(y[i] - ypred[i]) for i in range(len(y))]) / len(y)
 
 
-def run_ols():
+def run_ols(prop, train):
     """Run OLS"""
     np.random.seed(17)
     random.seed(17)
-
-    prop, train, sample = load_data()
-    del sample
 
     train = pd.merge(train, prop, how='left', on='parcelid')
     y = train['logerror'].values
@@ -344,23 +353,23 @@ def main():
     print('Loading data ...')
     prop, train, sample = load_data()
 
+    print('Fit OLS model ...')
+    reg, col = run_ols(prop, train)
+
     print('Feature engineering ...')
     prop = feature_engineering(prop)
-
-    print('Creating LGB model ...')
-    ltrain_columns, lclf = create_lgb_trainset(train, prop)
 
     print('Creating XGB model ...')
     xtrain_columns, xclf = create_xgb_trainset(train, prop)
 
-    print('Predicting with LGB ...')
-    lgb_results = run_gb(train, prop, sample, lclf, ltrain_columns, 'LGB')
+    print('Creating LGB model ...')
+    ltrain_columns, lclf = create_lgb_trainset(train, prop)
 
     print('Predicting with XGB ...')
     xgb_results = run_gb(train, prop, sample, xclf, xtrain_columns, 'XGB')
 
-    print('Fit OLS model ...')
-    reg, col = run_ols()
+    print('Predicting with LGB ...')
+    lgb_results = run_gb(train, prop, sample, lclf, ltrain_columns, 'LGB')
 
     print('Ensembling')
     ensemble(lgb_results, xgb_results, reg, col, prop, sample)
