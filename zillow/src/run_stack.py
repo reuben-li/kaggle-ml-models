@@ -109,6 +109,7 @@ def create_lgb_trainset(train, prop):
     df_train = train.merge(prop, how='left', on='parcelid')
     df_train = df_train[df_train.logerror > -0.21]
     df_train = df_train[df_train.logerror < 0.27]
+    df_train = df_train[df_train.bedroomcnt < 8]
 
     x_train = df_train.drop([
         'fireplacecnt',
@@ -268,6 +269,10 @@ def run_ols():
     prop, train, sample = load_data()
 
     train = pd.merge(train, prop, how='left', on='parcelid')
+    # train = train[train.logerror > -0.21]
+    # train = train[train.logerror < 0.27]
+    # train = train[train.bedroomcnt < 8]
+
     y = train['logerror'].values
 
     del prop
@@ -331,6 +336,7 @@ def ensemble(lgb_pred, xgb_pred, reg, col, prop, sample):
     print(sample.head())
 
     print("\nWriting results to disk ...")
+    del sample['parcelid']
     sample.to_csv('results/sub{}.csv'
                   .format(datetime.now().strftime('%Y%m%d_%H%M%S')),
                   index=False)
