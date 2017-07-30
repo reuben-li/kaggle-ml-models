@@ -176,14 +176,14 @@ def create_xgb_trainset(x_train, y_train):
 
     cv_scores = []
     rounds = []
-    kf = model_selection.KFold(n_splits=5, shuffle=True, random_state=2016)
+    kf = model_selection.KFold(n_splits=2, shuffle=True, random_state=2016)
     for dev_index, val_index in kf.split(range(x_train.shape[0])):
         dev_X, val_X = x_train[dev_index, :], x_train[val_index, :]
         dev_y, val_y = y_train[dev_index], y_train[val_index]
         e_train = xgb.DMatrix(dev_X, label=dev_y)
         e_valid = xgb.DMatrix(val_X, label=val_y)
         clf = xgb.train(
-            params, e_train, 1000, [(e_valid, 'valid')], verbose_eval=200,
+            params, e_train, 10, [(e_valid, 'valid')], verbose_eval=200,
             early_stopping_rounds=50)
         score = clf.best_score
         cv_scores.append(score)
