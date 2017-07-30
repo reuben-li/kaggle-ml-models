@@ -61,8 +61,6 @@ def feature_engineering(prop):
     prop['bedbathratio'] = prop['bedroomcnt'] / prop['bathroomcnt']
     prop['city'] = prop['rawcensustractandblock'][0:4]
 
-    # prop['taxamount_bin'] = binner(prop['taxamount'], 12, True)
-
     abc_list = []
     classes = 20
     for i in xrange(97, 123):
@@ -267,12 +265,9 @@ def run_ols():
     random.seed(17)
 
     prop, train, sample = load_data()
+    del sample
 
     train = pd.merge(train, prop, how='left', on='parcelid')
-    # train = train[train.logerror > -0.21]
-    # train = train[train.logerror < 0.27]
-    # train = train[train.bedroomcnt < 8]
-
     y = train['logerror'].values
 
     del prop
